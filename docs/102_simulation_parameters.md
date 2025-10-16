@@ -64,14 +64,14 @@ These parameters control the fee structure for swaps and trading activities:
 
 These parameters determine how collected fees are allocated between different stakeholders:
 
-| Parameter | Description | Current Value | Adjustable |
-|-----------|-------------|---------------|------------|
-| `buffer_share_pct` | Percentage to Buffer for automatic POMM deployment | ~85% | ✓ |
-| `treasury_share_pct` | Percentage to protocol treasury | ~10% | ✓ |
-| `creator_share_pct` | Percentage to token creator | ~5% | ✓ |
-| `pomm_funding_source` | How floor advancement is funded | Automatic fee accumulation | Fixed |
+| Parameter | Description | Current Default | Range | Adjustable |
+|-----------|-------------|----------------|-------|------------|
+| `buffer_share_pct` | Percentage to Buffer for automatic POMM deployment | ~98.5% | Remainder after protocol+creator | ✓ |
+| `treasury_share_pct` | Percentage to protocol treasury | ~1.0% | 0-10% | ✓ |
+| `creator_share_pct` | Percentage to token creator | ~0.5% | 0-5% | ✓ |
+| `pomm_funding_source` | How floor advancement is funded | Automatic fee accumulation | N/A | Fixed |
 
-**Note**: The Buffer allocation directly drives floor advancement speed, while the 7% synthetic mint rate provides a steady background drift. Optimizing the fee split therefore balances floor growth against treasury accumulation and ecosystem incentives.
+**Fee Split Optimization Goal**: One of the primary goals of this simulation is to analyze different fee allocation strategies and recommend optimal parameters for the protocol. The current program defaults (1% protocol, 0.5% creator, 98.5% buffer) serve as the baseline, with systematic exploration of alternative splits to balance floor advancement speed, protocol sustainability, and ecosystem incentives.
 
 **POMM Deployment Parameters**
 
@@ -132,7 +132,7 @@ The default protocol configuration representing current implementation state:
 |-----------|-------|-------------|
 | Base fee | 30 basis points (0.30%) | Standard swap fee |
 | Impact fees | Disabled | Current implementation state |
-| Fee distribution | 85% Buffer, 10% protocol, 5% creator | Current allocation |
+| Fee distribution | 98.5% Buffer, 1% protocol, 0.5% creator | Current program defaults |
 | POMM funding | Automatic Buffer accumulation | Continuous deployment |
 | Mint rate | 7% synthetic FeelsSOL yield | Backing-driven drift |
 | POMM deployment ratio | 50% of buffer per deployment | Conservative deployment |
@@ -165,10 +165,11 @@ Different fee allocation scenarios to test impact on system dynamics:
 
 | Scenario | Buffer Share | Protocol Share | Creator Share | Description |
 |----------|--------------|----------------|---------------|-------------|
-| Current | 85% | 10% | 5% | Existing allocation |
-| Fast Floor Growth | 90% | 7% | 3% | Maximize floor advancement speed |
-| Protocol Sustainable | 75% | 20% | 5% | More fees for protocol operations |
-| Creator Incentive | 80% | 10% | 10% | Enhanced creator rewards |
+| Current Default | 98.5% | 1.0% | 0.5% | Current program defaults |
+| Protocol Sustainable | 85% | 10% | 5% | Increased protocol treasury funding |
+| Creator Incentive | 90% | 5% | 5% | Enhanced creator rewards while maintaining protocol funding |
+| Balanced Growth | 92% | 5% | 3% | Moderate increases to protocol and creator shares |
+| Maximum Protocol | 80% | 15% | 5% | Maximum sustainable protocol funding |
 
 *Implementation note*: Buffer allocation directly controls floor advancement rate, while the synthetic mint rate adds a predictable drift. Higher Buffer allocation leads to faster floor growth but reduces protocol treasury accumulation. Each scenario should be evaluated for long-term sustainability.
 

@@ -135,32 +135,34 @@ The protocol implements a **two-layer fee distribution system** that combines tr
 
 #### Primary Fee Split (from total swap fees)
 
-| Component | Allocation | Purpose |
-|-----------|-----------|---------|
-| Buffer (τ) | ~85% | Accumulates for automatic POMM deployment and floor advancement |
-| Protocol Treasury | ~10% | Ongoing development and operational expenses |
-| Token Creators | ~5% | Incentive for launching projects on the platform |
+| Component | Current Default | Configurable Range | Purpose |
+|-----------|----------------|-------------------|---------|
+| Buffer (τ) | ~98.5% | Variable remainder | Accumulates for automatic POMM deployment and floor advancement |
+| Protocol Treasury | ~1.0% | 0-10% | Ongoing development and operational expenses |
+| Token Creators | ~0.5% | 0-5% | Incentive for launching projects on the platform |
+
+**Note**: Current program defaults allocate 1% to protocol treasury and 0.5% to creators, with the buffer receiving the remainder (~98.5%). These percentages are configurable by the protocol admin and may be adjusted based on simulation results and governance decisions.
 
 #### Automatic Fee-Driven Floor Advancement
 
 **Critical**: The Buffer (τ) receives the majority of swap fees and automatically funds POMM deployment when thresholds are met. This creates automatic, fee-driven floor price advancement.
 
 **How the System Works**:
-1. **Fee Collection**: Each swap splits fees according to the allocation above
-2. **Buffer Accumulation**: ~85% of fees flow into the market's Buffer (τ)
+1. **Fee Collection**: Each swap splits fees according to protocol-configured allocation
+2. **Buffer Accumulation**: Currently ~98.5% of fees flow into the market's Buffer (τ)
 3. **Automatic POMM Deployment**: When Buffer reaches threshold (100 tokens), POMM deployment becomes eligible
 4. **Floor Advancement**: POMM positions are deployed automatically, advancing the floor price
 5. **Monotonic Growth**: Floor prices can only increase, never decrease
 
 **Fee-Driven Growth Formula**:
 
-$$\text{Buffer Growth Rate} = \text{Trading Volume} \times \text{Average Fee Rate} \times 0.85$$
+$$\text{Buffer Growth Rate} = \text{Trading Volume} \times \text{Average Fee Rate} \times \text{Buffer Share}$$
 
 $$\text{Floor Advancement Rate} \propto \text{Buffer Accumulation Rate}$$
 
 This system ensures that active trading directly translates to floor price advancement, creating strong incentives for ecosystem growth.
 
-The protocol treasury receives 10% of fees to fund ongoing development and operational expenses. Token creators receive 5% as an incentive for launching projects on the platform. These percentages are configurable through governance.
+**Fee Split Optimization**: The current defaults (1% protocol, 0.5% creator, 98.5% buffer) can be adjusted by the protocol admin. This simulation framework enables analysis of different fee allocation strategies to optimize floor advancement speed, protocol sustainability, and ecosystem incentives.
 
 ### Buffer Operations and Value Flows
 
@@ -169,13 +171,13 @@ The protocol treasury receives 10% of fees to fund ongoing development and opera
 The Buffer (τ) serves as the **automatic floor advancement engine** that drives the protocol's core value proposition:
 
 **Buffer Functions**:
-- **Primary Fee Collection**: Accumulates ~85% of all swap fees
+- **Primary Fee Collection**: Accumulates majority of all swap fees (currently ~98.5%)
 - **Automatic POMM Funding**: Deploys accumulated fees when thresholds are met
 - **Floor Price Advancement**: Creates monotonically increasing price floors
 - **Thermodynamic Reservoir**: Manages fee flow and deployment timing
 
 **Value Flows Through Buffer**:
-- **Inflows**: ~85% of total swap fees from all trading activity
+- **Inflows**: Configurable percentage of total swap fees from all trading activity (currently ~98.5%)
 - **Outflows**: Automatic POMM deployments when thresholds and cooldowns are satisfied
 - **Design Purpose**: Converts trading activity directly into floor price support
 
