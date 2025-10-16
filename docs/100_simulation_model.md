@@ -4,7 +4,7 @@
 
 This document outlines the theoretical foundation and mathematical models for simulating floor price dynamics in Feels markets. The simulation model enables systematic exploration of how protocol parameters affect floor price trajectories under various market conditions and participant behaviors. The primary goal is to optimize protocol parameters such as swap fees and fee splits. This optimization aims to maximize floor price growth while maintaining healthy market dynamics.
 
-The simulation focuses on modeling a single Feels market over time. It captures the interaction between trading activity, liquidity provider behavior, governance decisions, and floor price advancement. By systematically varying protocol parameters and market conditions, we can identify optimal configurations. These configurations balance multiple objectives including floor price growth, market efficiency, and participant satisfaction.
+The simulation focuses on modeling a single Feels market over time. It captures the interaction between trading activity, liquidity provider behavior, protocol policy choices (fee splits, supplements), and floor price advancement. By systematically varying protocol parameters and market conditions, we can identify optimal configurations. These configurations balance multiple objectives including floor price growth, market efficiency, and participant satisfaction.
 
 ## Key Modeling Considerations
 
@@ -12,21 +12,21 @@ The simulation focuses on modeling a single Feels market over time. It captures 
 
 Based on analysis of the Feels protocol implementation, several key insights fundamentally shape the simulation approach:
 
-**Fee Distribution Reality**: Contrary to some documentation, ~98.5% of swap fees go directly to liquidity providers. They go through Uniswap V3-style position fee accrual, not to a protocol buffer. Only ~1% goes to protocol treasury and ~0.5% to token creators.
+**Fee Distribution Reality**: Swap fees are split with ~85% going to the Buffer (τ) for automatic POMM deployment, ~10% to protocol treasury, and ~5% to token creators. This creates direct fee-driven floor advancement.
 
-**POMM Funding Independence**: Floor price advancement through POMM deployment is not automatically funded by trading fees. It requires explicit governance allocation decisions, protocol treasury funding, or JitoSOL yield allocation.
+**Automatic POMM Funding**: Floor price advancement through POMM deployment is automatically funded by trading fees accumulating in the Buffer. When thresholds are met (100+ tokens), POMM positions deploy automatically.
 
-**LP-Centric Economics**: Since LPs receive the vast majority of fees, protocol parameter changes primarily affect LP profitability and liquidity provision incentives. They do not directly impact floor funding.
+**Fee-Driven Economics**: Since the majority of fees flow to the Buffer for floor advancement, trading activity directly drives floor price growth. Higher trading volume leads to faster floor advancement.
 
 ### Simulation Design Implications
 
-**Governance Modeling**: The simulation must model POMM funding as discrete governance decisions rather than continuous fee accumulation. This requires modeling different funding strategies (yield-based, treasury-based, governance-based). It also requires modeling their sustainability.
+**Automatic POMM Modeling**: The simulation must model POMM funding as automatic fee accumulation with threshold-based deployment. When Buffer reaches 100+ tokens and cooldown periods are satisfied, POMM deployment occurs automatically.
 
-**LP Behavior Emphasis**: With LPs receiving ~98.5% of fees, their behavioral responses to parameter changes become the primary driver of market dynamics. Fee sensitivity, capital allocation, and retention modeling are critical.
+**Fee-Volume Feedback Loop**: Trading volume drives fee accumulation, which drives floor advancement, which attracts more participants and trading. This creates a positive feedback loop that must be modeled carefully.
 
-**Floor Independence**: Floor price growth operates largely independently of trading activity. This makes it essential to model alternative funding sources and their impact on long-term sustainability.
+**Floor-Trading Coupling**: Floor price growth operates directly from trading activity through the Buffer mechanism. Higher trading volume leads to faster Buffer accumulation and more frequent floor advancements.
 
-**Multi-Objective Optimization**: The optimization problem balances LP profitability (to maintain liquidity), protocol sustainability (to fund operations), and floor advancement (to provide token value support). It does not simply maximize fee-driven floor growth.
+**Multi-Objective Optimization**: The optimization problem balances trading volume incentives (through fee levels), protocol sustainability (through treasury allocation), and floor advancement speed (through Buffer allocation). All are interconnected through the fee structure.
 
 ---
 
@@ -34,18 +34,18 @@ Based on analysis of the Feels protocol implementation, several key insights fun
 
 ### Discrete Event Architecture
 
-The simulation runs on a multi-scale loop. Minute-level substeps align with the protocol’s 60-second POMM cooldown, while higher-level checkpoints (hourly, daily) handle slower governance and reporting flows. This structure preserves computational efficiency without aliasing POMM opportunities.
+The simulation runs on a multi-scale loop. Minute-level substeps align with the protocol’s 60-second POMM cooldown, while higher-level checkpoints (hourly, daily) handle slower policy adjustments and reporting flows. This structure preserves computational efficiency without aliasing POMM opportunities.
 
 At each one-minute tick the engine performs:
 
 1. **Market Environment Update**: Apply short-term price shocks and sentiment shifts
 2. **Participant Decision Making**: Generate orders based on updated conditions
 3. **Swap Execution**: Match orders against the current liquidity curve
-4. **Fee Distribution**: Accrue LP fees, protocol share, and creator share
-5. **POMM Evaluation**: Check cooldown timers, TWAP windows, and funding availability
-6. **Floor Funding Flow Update**: Accumulate staking yield and process queued allocations
+4. **Fee Routing**: Send the Buffer share to `buffer_balance` and credit treasury/creator balances
+5. **Funding Flow Update**: Accrue synthetic minting into `mintable_feelssol` and consolidate deployable capital
+6. **POMM Evaluation**: Check cooldown timers, TWAP windows, and funding availability for automatic deployment
 
-Every 60 minutes the simulation aggregates metrics, re-evaluates governance policies, and recalibrates participant portfolios. Additional daily or weekly passes can layer on top for low-frequency processes without disrupting the minute cadence.
+Every 60 minutes the simulation aggregates metrics, recalibrates participant portfolios, and processes any scenario-level policy hooks. Additional daily or weekly passes can layer on top for low-frequency processes without disrupting the minute cadence.
 
 ### State Management
 
@@ -65,11 +65,10 @@ class MarketState:
 **Protocol Operations State**
 ```python
 class ProtocolState:
-    treasury_balance: float        # Protocol treasury accumulation (~1% of fees)
-    creator_balance: float         # Creator fee accumulation (~0.5% of fees)
-    staking_yield_buffer: float    # Accrued JitoSOL yield pending allocation
-    governance_queue: List[GovernanceAction]  # Scheduled funding decisions
-    pomm_funding_allocated: float  # Governance-earmarked capital ready for deployment
+    treasury_balance: float        # Protocol treasury accumulation (~10% of fees)
+    creator_balance: float         # Creator fee accumulation (~5% of fees)
+    buffer_balance: float          # Fee share routed to Buffer for automatic POMM
+    mintable_feelssol: float       # FeelsSOL available from yield-driven minting
     last_pomm_deployment: int      # Timestamp of last POMM action
     pomm_deployments_count: int    # Number of floor advancements
 ```
@@ -89,7 +88,7 @@ Each simulation step processes events in a deterministic order to ensure consist
 
 **Trade Processing**: When participants decide to trade, the system calculates price impact, executes swaps across liquidity positions, collects fees, and updates market state. The concentrated liquidity model requires iterating through tick ranges to determine the exact execution path and final prices.
 
-**POMM Deployment Logic**: At each time step, the system evaluates whether conditions are met for floor advancement. This includes checking allocated POMM funding, cooldown periods, and the monotonic advancement requirement. When deployment occurs, the system selects optimal tick ranges and deploys allocated FeelsSOL as permanent liquidity. *Critical: POMM funding comes from governance allocations, not automatic fee accumulation.*
+**POMM Deployment Logic**: At each time step, the system evaluates whether conditions are met for floor advancement. This includes checking Buffer balances, cooldown periods, and the monotonic advancement requirement. When deployment occurs, the system selects optimal tick ranges and deploys accumulated Buffer and mintable FeelsSOL as permanent liquidity. *Critical: Buffer funding is automatic; discretionary supplements are optional.*
 
 ---
 
@@ -102,54 +101,48 @@ The fundamental floor price calculation follows the formula established in the F
 $$\text{Floor Price (in FeelsSOL)} = \frac{\text{Total Allocated FeelsSOL Reserves}}{\text{Circulating Token Supply}}$$
 
 **USD Conversion**:
-$$\text{Floor Price (USD)} = \text{Floor Price (FeelsSOL)} \times \frac{\text{FeelsSOL}}{\text{JitoSOL}} \times \frac{\text{JitoSOL}}{\text{SOL}} \times \text{SOL/USD Price}$$
+**FeelsSOL Backing Model**: FeelsSOL is a synthetic asset targeting SOL price, fully backed by JitoSOL reserves. As JitoSOL appreciates relative to SOL (~7% annually), additional FeelsSOL can be minted to maintain the SOL price target.
 
-Given our simulation assumptions:
-- FeelsSOL/JitoSOL = 1.0 (always)
-- JitoSOL/SOL = 1.0 (per simulation requirements)
+**USD Conversion**:
+$$\text{Floor Price (USD)} = \text{Floor Price (FeelsSOL)} \times \text{FeelsSOL/SOL Price Target} \times \text{SOL/USD Price}$$
+
+For simulation purposes:
+- FeelsSOL targets SOL price (1:1 price target)
+- JitoSOL backing appreciates at ~7% APR relative to SOL
+- FeelsSOL can be redeemed for JitoSOL at current JitoSOL/SOL rate
 
 Therefore: $$\text{Floor Price (USD)} = \text{Floor Price (FeelsSOL)} \times \text{SOL/USD Price}$$
 
 ### Reserve Accumulation Dynamics
 
-**Critical Update**: Floor price reserves do not automatically accumulate from trading fees. The implementation shows that ~98.5% of fees go directly to LPs through position fee accrual, not to a protocol buffer for floor advancement.
+**Critical Update**: Floor price reserves automatically accumulate from trading fees. The implementation shows that ~85% of fees go directly to the Buffer (τ) for automatic POMM deployment, creating fee-driven floor advancement.
 
-**Actual Reserve Sources**:
-1. **Governance Allocation**: Dedicated protocol funding for POMM deployment
-2. **Protocol Treasury**: Small portion (~1%) that could be allocated to floor support
-3. **Yield Allocation**: JitoSOL staking yield could be directed to floor reserves
-4. **External Funding**: Additional capital allocation decisions
+**Reserve Sources**:
+1. **Buffer Fee Accumulation**: ~85% of every swap fee moves directly into Buffer for deployment
+2. **FeelsSOL Minting Capacity**: JitoSOL’s ~7% APR outperformance of SOL allows continual FeelsSOL minting without breaking the peg
+3. **Treasury/Creator Shares**: The remaining fee shares (~10% protocol, ~5% creator) can optionally reinforce the floor or fund incentives
 
-**Yield-Based Growth (when allocated)**:
-$$\frac{d\text{Reserves}}{dt}_{\text{yield}} = \text{Allocated Reserves} \times \frac{\text{JitoSOL Yield Rate}}{365.25 \times 24}$$
+**Buffer Accumulation Rate**:
+$$\frac{d\text{Buffer}}{dt} = \text{Trading Volume} \times \text{Average Fee Rate} \times \text{buffer\_share}$$
 
-**Governance-Based Allocation**:
-$$\frac{d\text{Reserves}}{dt}_{\text{governance}} = \text{Periodic allocation decisions (not fee-driven)}$$
+**FeelsSOL Minting Rate**:
+$$\frac{d\text{Mintable FeelsSOL}}{dt} = \text{Outstanding FeelsSOL} \times \frac{0.07}{365.25 \times 24}$$
 
 **Total Reserve Growth**:
-$$\frac{d\text{Reserves}}{dt}_{\text{total}} = \frac{d\text{Reserves}}{dt}_{\text{yield}} + \frac{d\text{Reserves}}{dt}_{\text{governance}}$$
+$$\frac{d\text{Reserves}}{dt} = \frac{d\text{Buffer}}{dt} + \frac{d\text{Mintable FeelsSOL}}{dt} + \text{supplementary transfers}$$
 
-**Simulation Implication**: Floor price growth depends on explicit funding decisions, not automatic fee accumulation. This fundamentally changes the economic model.
+**Simulation Implication**: Floor price growth follows trading volume in real time, while yield-driven minting adds a predictable upward drift.
 
 ### Floor Funding Pipeline
 
 To preserve economic realism, the simulation models the full flow of capital before it becomes deployable floor liquidity:
 
-1. **Fee Inflows**: Protocol and creator shares accrue to `treasury_balance`. LP receipts stay untouched unless a scenario explicitly authorizes redistribution.
-2. **Staking Yield Accrual**: JitoSOL yield compounds into `staking_yield_buffer` using the configured compounding frequency.
-3. **Governance Allocation**: DAO policies pop actions from `governance_queue`, earmarking treasury or yield balances for POMM usage and recording the decision timestamp.
-4. **Deployment Readiness**: Cleared allocations move into `pomm_funding_allocated`, where cooldown timers and liquidity requirements determine actual deployment.
+1. **Fee Inflows**: Each minute, the buffer share of fees increases `buffer_balance`, while treasury and creator balances accumulate their fixed shares.
+2. **Yield Drift**: The engine mints new FeelsSOL at the 7% APR drift rate, crediting `mintable_feelssol`.
+3. **Automatic Deployment**: When cooldown, TWAP placement, and minimum buffer thresholds are met, the model converts Buffer + mintable supply into fresh POMM liquidity.
+4. **Optional Supplements**: Scenario hooks allow treasury or external capital to top up the floor, but these are additive rather than required.
 
-The simulator records each stage separately, enabling analysis of governance latency, funding sufficiency, and the sustainability of recurring allocations.
-
-```python
-@dataclass
-class GovernanceAction:
-    activation_time: int
-    allocation_amount: float
-    source: FundingSource  # e.g., TREASURY, YIELD, EXTERNAL
-    destination: str       # Target pool or market identifier
-```
+Tracking these components independently allows attribution of floor growth between trading-driven Buffer inflows, synthetic minting, and discretionary injections.
 
 ### POMM Deployment Impact
 
@@ -187,13 +180,17 @@ $$\text{New Floor Price} = \frac{\text{New Floor Reserves}}{\text{Circulating Su
 
 ### Time-Dependent Floor Price Trajectory
 
-The floor price trajectory combines deterministic yield growth with governance-driven funding allocation:
+The floor price trajectory combines automatic fee-driven accumulation with backing appreciation:
 
-$$\text{Floor Price}(t) = \frac{\text{Initial Reserves} \times e^{r \times t} + \int_0^t \text{governance\_allocations}(\tau) \times e^{r \times (t-\tau)} d\tau}{\text{Supply}(t)}$$
+$$\text{Floor Price}(t) = \frac{\text{Initial Reserves} + \int_0^t \text{fee\_accumulation}(\tau) d\tau + \text{Supply}(0) \times (e^{r \times t} - 1)}{\text{Supply}(t)}$$
 
-where $r$ is the yield rate.
+where $r$ is the JitoSOL appreciation rate relative to SOL (~7% APR).
 
-**Key Change**: Fee accumulation is replaced by governance allocations, making floor price growth dependent on explicit funding decisions rather than automatic trading fee capture. This creates a more controlled but potentially less predictable growth pattern.
+**Key Changes**: 
+1. **Primary Growth Driver**: Automatic fee accumulation in Buffer (~85% of swap fees)
+2. **Secondary Growth**: FeelsSOL minting capacity from JitoSOL backing appreciation
+3. **Trading Coupling**: Floor growth rate directly proportional to trading volume and activity
+4. **Feedback Loop**: Higher floors attract more trading, creating compound growth potential
 
 ---
 
@@ -257,7 +254,7 @@ The simulation models distinct participant types with different behavioral patte
 - Price sensitivity: Lower (willing to pay for immediacy)
 - Strategy adaptation: Respond to fee changes and market structure
 
-**Liquidity Providers** add capital to earn fees through position fee accrual (~98.5% of swap fees). They must consider impermanent loss and fee collection rates. Their participation directly affects market efficiency and trading spreads:
+**Liquidity Providers** add capital to maintain tight spreads. With the majority of fees funneled into the Buffer, LP incentives rely on the residual fee share plus any supplemental rewards. Their participation directly affects market efficiency and trading spreads:
 - Position size distribution: Based on capital allocation models and fee earning expectations
 - Duration: Range from hours to months depending on returns and fee accrual rates
 - Fee sensitivity: High sensitivity to actual fee rates (since they receive most fees)
@@ -317,6 +314,6 @@ The simulation models the distribution of participant preferences across key dim
 Behavioral parameters and liquidity responses must be grounded in observable data. The pre-launch calibration plan includes:
 
 - **Comparable Market Benchmarks**: Collect trade and liquidity distributions from live Solana CLMMs (Orca Whirlpools, Raydium Concentrated) to seed priors for order sizes, tick utilization, and LP churn.
-- **Partner Surveys & Commitments**: Work with planned launch partners to gather acceptable fee split bands, expected capital allocation cadence, and governance response times.
+- **Partner Surveys & Commitments**: Work with planned launch partners to gather acceptable fee split bands, supplemental funding appetite, and operational response times.
 - **Historical Backtests**: Replay historical SOL price paths and Uniswap v3 fee data through the engine, tuning elasticity coefficients until simulated volume and fee capture correlate with real-world series.
 - **Live Data Feedback Loop**: Maintain a calibration notebook that compares simulated outputs to post-launch metrics, with versioned parameter sets and automated alerting when deviations exceed tolerance.

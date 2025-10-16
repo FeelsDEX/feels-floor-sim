@@ -2,7 +2,7 @@
 
 ## System Overview
 
-The Feels Protocol implements a hub-and-spoke concentrated liquidity AMM on Solana. The system is designed around FeelsSOL as the universal routing token. Traditional AMMs fragment liquidity across multiple trading pairs. Feels consolidates all trading activity through a single hub token backed 1:1 by yield-bearing JitoSOL.
+The Feels Protocol implements a hub-and-spoke concentrated liquidity AMM on Solana. The system is designed around FeelsSOL as the universal routing token. Traditional AMMs fragment liquidity across multiple trading pairs. Feels consolidates all trading activity through a single hub token that is fully backed by yield-bearing JitoSOL.
 
 The protocol's architecture centers on three integrated systems. First, a dual-component fee structure captures trading value. Second, a Protocol-Owned Market Making (POMM) system establishes monotonically increasing price floors. Third, a Just-In-Time (JIT) liquidity mechanism supports newly launched markets. These systems operate within a carefully designed economic model. The model balances liquidity provider incentives, protocol sustainability, and floor price advancement.
 
@@ -25,15 +25,15 @@ The protocol's architecture centers on three integrated systems. First, a dual-c
 
 At its core, Feels operates on a strict hub-and-spoke model. FeelsSOL serves as the universal intermediary for all trades. Traditional AMMs create isolated liquidity pools between arbitrary token pairs. Every market in Feels is structured as a TokenX/FeelsSOL pair. This architectural constraint means that trading from TokenA to TokenB requires at most two hops: TokenA → FeelsSOL → TokenB.
 
-FeelsSOL itself is backed 1:1 by JitoSOL. JitoSOL is a liquid staking token that continuously earns approximately 7-8% annual staking rewards. This backing relationship is crucial. It means that the protocol's hub token appreciates in value over time independent of trading activity. Users can enter the system by depositing JitoSOL to mint FeelsSOL. They can exit by burning FeelsSOL to redeem the underlying JitoSOL at any time.
+FeelsSOL is a synthetic asset that targets the price of SOL while being fully backed by JitoSOL reserves. JitoSOL is a liquid staking token that continuously earns approximately 7-8% annual staking rewards. This creates a key dynamic: as JitoSOL appreciates relative to SOL (~7% annually), the protocol can mint additional FeelsSOL at a rate equivalent to this price divergence. Users can enter the system by depositing JitoSOL to mint FeelsSOL. They can exit by burning FeelsSOL to redeem JitoSOL at the current JitoSOL/SOL exchange rate.
 
 Each market implements concentrated liquidity mechanics similar to Uniswap V3. Liquidity providers can specify price ranges for their capital. FeelsSOL is always token_0 in every pair. This means the system benefits from consistent liquidity aggregation rather than fragmentation. NFT-tokenized positions represent individual liquidity provider stakes. This enables precise fee accounting and position management.
 
 ### Dual-Layer Solvency Model
 
-The protocol maintains solvency through a carefully designed two-layer architecture. At the pool level, each individual market maintains its own FeelsSOL escrow account. This account holds the tokens needed for swaps and liquidity operations. At the protocol level, a unified reserve of JitoSOL backs all FeelsSOL tokens across every market in the system.
+The protocol maintains solvency through a carefully designed two-layer architecture. At the pool level, each individual market maintains its own FeelsSOL escrow account. This account holds the tokens needed for swaps and liquidity operations. At the protocol level, a unified reserve of JitoSOL fully backs all FeelsSOL tokens across every market in the system.
 
-This structure provides both isolation and systemic stability. If a particular token market experiences problems, other markets remain unaffected. Each pool manages its own FeelsSOL inventory. The protocol-level JitoSOL reserves ensure that FeelsSOL always maintains its redemption value. This creates confidence in the hub token that underpins the entire system.
+This structure provides both isolation and systemic stability. If a particular token market experiences problems, other markets remain unaffected. Each pool manages its own FeelsSOL inventory. The protocol-level JitoSOL reserves ensure that FeelsSOL can always be redeemed for JitoSOL at the current market rate. As JitoSOL appreciates relative to SOL through staking yield, the protocol can mint additional FeelsSOL to maintain the SOL price target while preserving full backing.
 
 The Buffer (τ - tau) serves as a thermodynamic reservoir within each market. It accumulates fees and manages the flow of value between different system components. This buffer concept is central to how Feels maintains value conservation. No value is created or destroyed within the system. Value is only transferred between participants and pools according to well-defined rules.
 
@@ -137,50 +137,53 @@ The protocol implements a **two-layer fee distribution system** that combines tr
 
 | Component | Allocation | Purpose |
 |-----------|-----------|---------|
-| Liquidity Providers | ~98.5% | Distributed to LP positions via fee growth tracking |
-| Protocol Treasury | ~1.0% | Ongoing development and operational expenses |
-| Token Creators | ~0.5% | Incentive for launching projects on the platform |
+| Buffer (τ) | ~85% | Accumulates for automatic POMM deployment and floor advancement |
+| Protocol Treasury | ~10% | Ongoing development and operational expenses |
+| Token Creators | ~5% | Incentive for launching projects on the platform |
 
-#### LP Fee Distribution Mechanism
+#### Automatic Fee-Driven Floor Advancement
 
-**Important**: The "Buffer" terminology in some documentation is misleading. LPs actually receive the vast majority (~98.5%) of swap fees. They receive this through a sophisticated position fee accrual system inherited from Uniswap V3.
+**Critical**: The Buffer (τ) receives the majority of swap fees and automatically funds POMM deployment when thresholds are met. This creates automatic, fee-driven floor price advancement.
 
-**How LPs Earn Fees**:
-1. **Fee Growth Tracking**: Each swap updates `fee_growth_global_0_x64` and `fee_growth_global_1_x64` on the market
-2. **Position Fee Accrual**: Individual positions track `fee_growth_inside_last_x64` to calculate earned fees
-3. **Automatic Distribution**: Fees accrue automatically to positions based on their liquidity and the price range activity
-4. **Fee Collection**: LPs call `collect_fees` instruction to claim accumulated fees directly to their token accounts
+**How the System Works**:
+1. **Fee Collection**: Each swap splits fees according to the allocation above
+2. **Buffer Accumulation**: ~85% of fees flow into the market's Buffer (τ)
+3. **Automatic POMM Deployment**: When Buffer reaches threshold (100 tokens), POMM deployment becomes eligible
+4. **Floor Advancement**: POMM positions are deployed automatically, advancing the floor price
+5. **Monotonic Growth**: Floor prices can only increase, never decrease
 
-**Fee Accrual Formula**:
+**Fee-Driven Growth Formula**:
 
-$$\text{fees\_owed} \mathrel{+}= \frac{(\text{current\_fee\_growth\_inside} - \text{last\_fee\_growth\_inside}) \times \text{position\_liquidity}}{2^{64}}$$
+$$\text{Buffer Growth Rate} = \text{Trading Volume} \times \text{Average Fee Rate} \times 0.85$$
 
-This system ensures that LPs earn fees proportional to their liquidity contribution and the trading activity that occurs within their price ranges. Only the small protocol (1%) and creator (0.5%) portions are diverted from LP earnings.
+$$\text{Floor Advancement Rate} \propto \text{Buffer Accumulation Rate}$$
 
-The protocol treasury receives a modest 1% of fees to fund ongoing development and operational expenses. Token creators receive 0.5% as an incentive for launching projects on the platform. These percentages are configurable through governance. They may be adjusted as the protocol matures and economic requirements evolve.
+This system ensures that active trading directly translates to floor price advancement, creating strong incentives for ecosystem growth.
+
+The protocol treasury receives 10% of fees to fund ongoing development and operational expenses. Token creators receive 5% as an incentive for launching projects on the platform. These percentages are configurable through governance.
 
 ### Buffer Operations and Value Flows
 
-**Important Clarification**: The Buffer (τ) does not accumulate the majority of swap fees. Most fees (~98.5%) go directly to LPs. They go through the position fee accrual system described above.
+**Important**: The Buffer (τ) is the primary accumulator of swap fees and the automatic funding source for POMM deployment.
 
-The Buffer (τ) serves a more specialized role as a **protocol operational account** that manages specific system functions:
+The Buffer (τ) serves as the **automatic floor advancement engine** that drives the protocol's core value proposition:
 
 **Buffer Functions**:
-- **Protocol Fee Collection**: Accumulates the ~1% protocol treasury allocation
-- **Creator Fee Holding**: Temporarily holds creator fees before distribution
-- **POMM Funding**: May receive allocations for protocol-owned market making operations
-- **Operational Expenses**: Covers gas costs and system maintenance expenses
+- **Primary Fee Collection**: Accumulates ~85% of all swap fees
+- **Automatic POMM Funding**: Deploys accumulated fees when thresholds are met
+- **Floor Price Advancement**: Creates monotonically increasing price floors
+- **Thermodynamic Reservoir**: Manages fee flow and deployment timing
 
 **Value Flows Through Buffer**:
-- **Inflows**: Small percentage of total fees (protocol + creator allocations), potential governance allocations
-- **Outflows**: POMM deployments (when funded), creator fee distributions, operational expenses
-- **Design Purpose**: Acts as a thermodynamic reservoir for protocol operations, not LP fee accumulation
+- **Inflows**: ~85% of total swap fees from all trading activity
+- **Outflows**: Automatic POMM deployments when thresholds and cooldowns are satisfied
+- **Design Purpose**: Converts trading activity directly into floor price support
 
-**POMM Funding Model**: The current implementation suggests that POMM (floor liquidity) deployment may be funded through dedicated allocations or governance decisions. This is rather than automatic fee accumulation. This represents a more conservative approach to floor price advancement. It requires explicit capital allocation rather than automatic fee capture.
+**Automatic POMM Deployment Model**: The implementation shows that POMM deployment is automatic and fee-driven. When the Buffer accumulates sufficient fees (100+ tokens) and cooldown periods are satisfied, POMM positions deploy automatically. This creates direct causation between trading volume and floor price advancement.
 
 ### Integration with FeelsSOL Yield
 
-The protocol benefits from a dual value accumulation mechanism. Fees flow into market-specific Buffers. Meanwhile, the underlying JitoSOL backing of FeelsSOL continues to appreciate through staking rewards. This yield accrues continuously at approximately 7-8% annually. This increases the backing value of all FeelsSOL in circulation.
+The protocol benefits from a dual value accumulation mechanism. The majority of swap fees (~85%) flow into market-specific Buffers that automatically fund floor advancement. Meanwhile, the underlying JitoSOL backing of FeelsSOL continues to appreciate through staking rewards at approximately 7-8% annually. This creates a unique dynamic: as the backing appreciates relative to SOL, the protocol can mint additional FeelsSOL while maintaining full backing. This provides supplementary capacity beyond the primary fee-driven advancement mechanism.
 
 Staking yield can be allocated to individual pool floors through governance decisions. This provides an additional mechanism for floor price support that operates independently of trading activity. This creates a baseline growth rate for floor prices even in markets with minimal trading volume.
 

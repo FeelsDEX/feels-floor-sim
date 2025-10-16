@@ -50,24 +50,24 @@ Long-term system health requires balancing floor price growth with market functi
 
 **Fee Collection and Distribution**:
 - `total_fees_collected`: Cumulative fee generation over time
-- `fee_distribution_breakdown`: Actual allocation across LPs (~98.5%), protocol (~1%), creator (~0.5%)
-- `lp_fee_accrual_rate`: Rate of fee accumulation in LP positions
-- `lp_fee_collection_frequency`: How often LPs claim their accrued fees
+- `fee_distribution_breakdown`: Actual allocation across Buffer (~85%), protocol (~10%), creator (~5%)
+- `buffer_accumulation_rate`: Rate of fee accumulation in Buffer for POMM deployment
+- `pomm_deployment_frequency`: How often Buffer triggers automatic POMM deployment
 - `protocol_treasury_growth`: Accumulation rate of protocol fees
-- `accrual_aggregates`: Daily/weekly/yearly totals for protocol, creator, and LP receipts
+- `accrual_aggregates`: Daily/weekly/yearly totals for protocol, creator, and Buffer receipts
 
 **POMM System Performance**:
-- `pomm_deployment_frequency`: Rate of successful floor advancements
+- `pomm_deployment_frequency`: Rate of automatic floor advancements from Buffer thresholds
 - `pomm_capital_efficiency`: Floor price advancement per FeelsSOL deployed
-- `pomm_timing_effectiveness`: Correlation between deployments and market conditions
-- `pomm_funding_sustainability`: Rate of governance funding vs deployment consumption
-- `funding_source_analysis`: Breakdown of POMM funding sources (governance, treasury, yield allocation)
+- `pomm_timing_effectiveness`: Relationship between trading volume and deployment timing
+- `buffer_sustainability`: Rate of fee accumulation vs deployment consumption
+- `funding_source_analysis`: Breakdown of POMM funding sources (Buffer fees, synthetic minting, optional supplements)
 
-**Liquidity Provider Economics**:
-- `lp_yield_rates`: Returns earned by liquidity providers
-- `lp_impermanent_loss`: Losses due to price movements relative to holding
-- `lp_capital_utilization`: Percentage of LP capital actively earning fees
-- `lp_position_duration`: Average time LPs maintain positions
+**Market Participant Economics**:
+- `trading_volume_impact`: Effect of fee levels on trading volume
+- `participant_retention`: How fee structure affects long-term participation
+- `floor_attraction_effect`: How floor price levels influence trading activity
+- `ecosystem_growth_rate`: Compound effect of floor advancement on total activity
 
 ### Risk and Stress Testing Metrics
 
@@ -164,12 +164,11 @@ def step_minute(self):
     self.process_participant_decisions()
     self.execute_swaps_against_curve()
     self.distribute_fees()
-    self.evaluate_pomm_deployments()
     self.update_floor_funding_flows()
+    self.evaluate_pomm_deployments()
 
 def complete_hour(self):
     self.rebalance_participants()
-    self.run_governance_policies()
     self.record_metrics(interval="hour")
 ```
 
@@ -177,11 +176,10 @@ def complete_hour(self):
 - `update_market_environment()`: Updates external factors like SOL price, staking yield, and sentiment.
 - `process_participant_decisions()`: Models trading behavior for each participant type based on current market conditions.
 - `execute_swaps_against_curve()`: Consumes orders across tick-indexed liquidity buckets to compute execution price and slippage.
-- `distribute_fees()`: Allocates fees to LPs (~98.5%), protocol (~1%), and creator (~0.5%).
-- `evaluate_pomm_deployments()`: Determines whether POMM funding should be deployed and updates floor price when applicable.
-- `update_floor_funding_flows()`: Accrues JitoSOL yield, executes queued governance decisions, and updates deployment readiness.
+- `distribute_fees()`: Routes ~85% of fees into Buffer, ~10% to protocol treasury, and ~5% to creators.
+- `update_floor_funding_flows()`: Consolidates Buffer growth with synthetic minting and updates deployment readiness.
+- `evaluate_pomm_deployments()`: Determines whether sufficient capital and timing conditions are met to advance the floor.
 - `rebalance_participants()`: Reassesses LP and trader positioning at hourly boundaries.
-- `run_governance_policies()`: Applies DAO heuristics that operate on hourly or slower cadences.
 - `record_metrics()`: Stores key metrics for analysis and visualization.
 
 ### Tick-Level Liquidity Representation
@@ -204,34 +202,34 @@ Snapshots of the curve at minute and hourly intervals feed KPIs such as `bid_ask
 @dataclass
 class FloorFundingState:
     treasury_balance: float
-    staking_yield_buffer: float
-    governance_queue: Deque[GovernanceAction]
-    pomm_funding_allocated: float
+    creator_balance: float
+    buffer_balance: float
+    mintable_feelssol: float
 ```
 
-- Compound JitoSOL yield into `staking_yield_buffer` every minute.
-- Execute queued governance actions during the hourly `complete_hour()` pass.
-- Track deployment-ready balances in `pomm_funding_allocated` with audit logs so sustainability metrics can attribute usage to treasury vs yield vs external allocations.
+- Route the Buffer share of swap fees into `buffer_balance` each minute.
+- Accrue synthetic FeelsSOL minting into `mintable_feelssol` at the configured drift rate.
+- Track treasury and creator balances so optional supplements can be attributed separately from automatic funding.
 
 ### Configuration & Scenario Management
 
-- Define all tunable parameters inside `config.py` dataclasses (fees, governance cadence, liquidity granularity, participant elasticities).
-- Store scenario bundles as YAML/JSON under `experiments/configs/` with descriptive names (`base.yml`, `bear_high_yield.yml`). Version them in git so governance discussions reference immutable inputs.
+- Define all tunable parameters inside `config.py` dataclasses (fee schedule, buffer share, mint rate, liquidity granularity, participant elasticities).
+- Store scenario bundles as YAML/JSON under `experiments/configs/` with descriptive names (`base.yml`, `bear_high_yield.yml`). Version them in git so analyses reference immutable inputs.
 - Expose overrides via environment variables/CLI flags so CI and dashboards can run the same scenario with minor tweaks.
 - Each simulation invocation should emit a `run.json` (or sqlite record) capturing scenario hash, git commit, random seeds, elapsed runtime, and day/week/year aggregate metrics.
 
 ### Development Phases
 
 1. **Foundations**: Implement core state containers, liquidity math, and deterministic swap execution. Add unit tests comparing against reference Uniswap v3 calculations.
-2. **Funding Mechanics**: Build the floor funding pipeline (yield accrual, governance queue, cooldown enforcement) using scripted scenarios to validate multiple deployments per hour.
+2. **Funding Mechanics**: Build the floor funding pipeline (fee routing, synthetic minting, cooldown enforcement) using scripted scenarios to validate multiple deployments per hour.
 3. **Participant Behaviors**: Port behavior models into `participants/`, parameterize them with calibration inputs, and add regression tests to keep aggregate volume/fee responses stable.
 4. **Metrics & Reporting**: Finish `MetricsCollector` and aggregation utilities, ensuring day/week/year rollups match expectations on synthetic data. Wire notebooks/dashboards to the produced parquet or arrow files.
 5. **Optimization & Analysis**: Implement parameter exploration tools for scenario analysis and result comparison.
 
 ### Testing Strategy
 
-- **Unit Tests**: Liquidity math, funding pipeline invariants (no double counting), governance action scheduling, and metric aggregations.
-- **Property Tests**: Ensure floor price never decreases after deployment, deployed capital never exceeds allocations, and fee splits always sum to 100%.
+- **Unit Tests**: Liquidity math, funding pipeline invariants (no double counting), buffer accounting, and metric aggregations.
+- **Property Tests**: Ensure floor price never decreases after deployment, deployed capital never exceeds allocations, fee splits always sum to 100%, and minting drift matches the configured rate.
 - **Integration Tests**: Deterministic 24-hour and 7-day scenarios with snapshot comparisons of floor price, protocol accrual, and LP earnings trajectories.
 
 **Modular Component Design**: Each major system component (market environment, participant behavior, POMM deployment, fee collection) is implemented as a separate module with well-defined interfaces. This modularity enables testing individual components and easy modification of specific behaviors.
@@ -248,7 +246,7 @@ class MetricsCollector:
         self.summary_stats = {}
         
     def record_timestep(self, timestamp: int, market_state: MarketState, 
-                       floor_state: FloorFundingState, trading_activity: TradingActivity):
+                       floor_state: FloorFundingState, trading_snapshot: Dict[str, float]):
         # Record all relevant metrics for this timestep
         # Update rolling aggregates for daily, weekly, yearly windows
         
@@ -281,24 +279,24 @@ Systematic parameter optimization requires structured exploration of the paramet
 
 ### Critical Implications for Parameter Optimization
 
-**Fundamental Model Change**: The discovery that LPs receive ~98.5% of fees (not a protocol buffer) fundamentally alters the parameter optimization problem:
+**Fundamental Model Change**: The correct understanding that ~85% of fees automatically flow to Buffer for POMM deployment fundamentally alters the parameter optimization problem:
 
 **Key Implications**:
-1. **Floor Price Independence**: Floor advancement is largely independent of trading activity and fee generation
-2. **LP Incentive Dominance**: Fee parameter changes primarily affect LP profitability, not floor funding
-3. **Governance Dependency**: Floor price growth depends on explicit allocation decisions, not automatic accumulation
-4. **Sustainability Questions**: POMM funding sustainability becomes a governance/treasury management issue
+1. **Fee-Driven Floor Growth**: Primary floor funding comes from automatic Buffer accumulation (~85% of swap fees)
+2. **Trading Volume Coupling**: Floor advancement directly depends on trading activity and fee generation
+3. **Fee Structure Optimization**: Fee levels affect both trading volume and floor advancement speed
+4. **Feedback Loop Dynamics**: Higher floors attract more trading, creating compound growth
 
 **Modified Optimization Objectives**:
-1. **LP Profitability**: Ensure competitive returns to maintain liquidity provision
-2. **Funding Sustainability**: Balance POMM funding allocation with protocol sustainability
-3. **Market Efficiency**: Optimize fee levels for trading activity while maintaining LP incentives
-4. **Floor Advancement Strategy**: Develop sustainable governance models for floor funding
+1. **Trading Volume Maximization**: Optimize fee levels to maximize sustainable trading activity
+2. **Buffer Allocation Balance**: Balance floor advancement speed with protocol treasury needs
+3. **Ecosystem Growth**: Create conditions for positive feedback between trading and floor advancement
+4. **Long-term Sustainability**: Ensure fee structure supports continued ecosystem growth
 
 **Parameter Exploration Priorities**:
-- **Fee Sensitivity Analysis**: Impact of fee changes on LP participation and trading volume
-- **Funding Model Comparison**: Yield-based vs treasury-based vs governance-based POMM funding
-- **LP Retention Modeling**: Fee levels required to maintain healthy liquidity provision
-- **Treasury Management**: Optimal allocation of protocol fees between operations and floor funding
+- **Fee-Volume Elasticity**: Impact of fee changes on trading volume and Buffer accumulation
+- **Buffer Allocation Optimization**: Optimal split between Buffer, protocol, and creator shares
+- **Feedback Loop Analysis**: How floor advancement affects trading behavior and volume
+- **Growth Sustainability**: Long-term viability of fee-driven floor advancement model
 
-This implementation guide provides the foundation for building a robust simulation framework that can systematically explore Feels protocol parameters with correct understanding of the LP-centric fee distribution model and governance-dependent floor advancement mechanism.
+This implementation guide provides the foundation for building a robust simulation framework that can systematically explore Feels protocol parameters with correct understanding of the fee-driven floor advancement mechanism.

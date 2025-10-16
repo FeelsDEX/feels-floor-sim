@@ -31,17 +31,19 @@ These parameters control the yield environment for the underlying assets backing
 | `jitosol_mev_premium` | Additional yield from MEV extraction | 1-2% |
 | `jitosol_total_yield` | Combined JitoSOL yield (base + MEV premium) | 7-9% |
 
-**Yield Rate Specification**: Average SOL staking yields range from 6-8% APY, while JitoSOL earns higher yields of 7-9% APY due to MEV extraction benefits. For simulation purposes, we will use a conservative 7% APY for JitoSOL staking yield to ensure our floor price projections remain realistic under various market conditions.
+**FeelsSOL Backing Specification**: JitoSOL appreciates relative to SOL at approximately 7% APY due to staking rewards and MEV extraction. This appreciation creates the capacity to mint additional FeelsSOL while maintaining full backing. For simulation purposes, we use 7% APY as the rate at which additional FeelsSOL can be minted for protocol purposes (such as floor advancement) while maintaining the SOL price target and full JitoSOL backing.
 
-**FeelsSOL Backing Assumptions**
+**FeelsSOL Backing Model**
 
-These parameters define the relationship between FeelsSOL and its underlying backing assets:
+FeelsSOL is a synthetic asset targeting SOL price, fully backed by JitoSOL reserves:
 
 | Parameter | Description | Value |
 |-----------|-------------|-------|
-| `feelssol_jitosol_peg` | Exchange rate between FeelsSOL and JitoSOL | 1:1 (fixed) |
-| `backing_yield_rate` | Constant yield rate for simulations | 7% APY |
-| `yield_compound_frequency` | How often yield compounds | Daily |
+| `feelssol_sol_price_target` | FeelsSOL targets SOL price | 1:1 (price target) |
+| `jitosol_appreciation_rate` | JitoSOL appreciation vs SOL | 7% APY |
+| `feelssol_minting_rate` | Rate of additional FeelsSOL minting from backing appreciation | 7% APY |
+| `redemption_rate` | FeelsSOL redeemed for JitoSOL at current JitoSOL/SOL rate | Variable |
+| `backing_compound_frequency` | How often backing appreciation compounds | Daily |
 
 ### Protocol Configuration Space
 
@@ -64,12 +66,12 @@ These parameters determine how collected fees are allocated between different st
 
 | Parameter | Description | Current Value | Adjustable |
 |-----------|-------------|---------------|------------|
-| `lp_share_pct` | Percentage to LPs via position fee accrual | ~98.5% | ✓ |
-| `protocol_share_pct` | Percentage to protocol treasury | ~1.0% | ✓ |
-| `creator_share_pct` | Percentage to token creator | ~0.5% | ✓ |
-| `pomm_funding_source` | How floor advancement is funded | Governance allocation | ✓ |
+| `buffer_share_pct` | Percentage to Buffer for automatic POMM deployment | ~85% | ✓ |
+| `protocol_share_pct` | Percentage to protocol treasury | ~10% | ✓ |
+| `creator_share_pct` | Percentage to token creator | ~5% | ✓ |
+| `pomm_funding_source` | How floor advancement is funded | Automatic fee accumulation | Fixed |
 
-**Note**: Adjusting fee splits away from LP accrual requires explicit protocol design updates (e.g., modifying on-chain fee routing logic). Because the protocol is still pre-launch we treat these percentages as adjustable, but each scenario should be tied to a corresponding contract change proposal before implementation.
+**Note**: The Buffer allocation directly drives floor advancement speed, while the 7% synthetic mint rate provides a steady background drift. Optimizing the fee split therefore balances floor growth against treasury accumulation and ecosystem incentives.
 
 **POMM Deployment Parameters**
 
@@ -82,17 +84,16 @@ These parameters control when and how Protocol-Owned Market Making positions are
 | `pomm_deployment_ratio` | Fraction of buffer used per deployment | 0.1-0.8 |
 | `floor_buffer_ticks` | Distance below current price for floor placement | 10-100 ticks |
 
-**Governance & Funding Cadence Parameters**
+**Supplemental Funding Parameters (optional)**
 
-These settings define how capital flows through the funding pipeline:
+These settings define optional policy-driven top-ups that can be layered on top of automatic Buffer and mint flows:
 
 | Parameter | Description | Baseline Range |
 |-----------|-------------|----------------|
-| `treasury_allocation_frequency` | Interval between DAO funding decisions | 1-4 weeks |
-| `treasury_allocation_pct` | Portion of treasury growth earmarked per decision | 10-50% |
-| `yield_compounding_interval_minutes` | Frequency of JitoSOL yield accrual | 1 minute |
+| `treasury_allocation_frequency` | Interval between discretionary top-ups | 1-4 weeks |
+| `treasury_allocation_pct` | Portion of treasury balance earmarked per top-up | 10-50% |
 | `emergency_allocation_trigger` | Floor/market ratio threshold that triggers ad-hoc funding | 0.2-0.6 |
-| `governance_execution_delay_hours` | Delay between vote approval and capital availability | 0-72 hours |
+| `governance_execution_delay_hours` | Delay between decision and capital availability | 0-72 hours |
 
 **Liquidity Representation Parameters**
 
@@ -131,9 +132,10 @@ The default protocol configuration representing current implementation state:
 |-----------|-------|-------------|
 | Base fee | 30 basis points (0.30%) | Standard swap fee |
 | Impact fees | Disabled | Current implementation state |
-| Fee distribution | 98.5% LPs, 1% protocol, 0.5% creator | Current allocation |
-| POMM funding | Governance-allocated | Not automatic from fees |
-| POMM deployment ratio | 50% of allocated funding | Conservative deployment |
+| Fee distribution | 85% Buffer, 10% protocol, 5% creator | Current allocation |
+| POMM funding | Automatic Buffer accumulation | Continuous deployment |
+| Mint rate | 7% synthetic FeelsSOL yield | Backing-driven drift |
+| POMM deployment ratio | 50% of buffer per deployment | Conservative deployment |
 
 **Market Participant Baseline**
 
@@ -161,13 +163,14 @@ The range of fee structures to be tested for optimization:
 
 Different fee allocation scenarios to test impact on system dynamics:
 
-| Scenario | LP Share | Protocol Share | Creator Share | Description |
-|----------|----------|----------------|---------------|-------------|
-| Current | 98.5% | 1.0% | 0.5% | Existing allocation |
-| Protocol-heavy | 85% | 10% | 5% | More fees to protocol |
-| Balanced | 90% | 7% | 3% | Moderate rebalancing |
+| Scenario | Buffer Share | Protocol Share | Creator Share | Description |
+|----------|--------------|----------------|---------------|-------------|
+| Current | 85% | 10% | 5% | Existing allocation |
+| Fast Floor Growth | 90% | 7% | 3% | Maximize floor advancement speed |
+| Protocol Sustainable | 75% | 20% | 5% | More fees for protocol operations |
+| Creator Incentive | 80% | 10% | 10% | Enhanced creator rewards |
 
-*Implementation note*: These scenarios assume the on-chain fee routing can be updated prior to launch. Each alternative should be paired with a concrete contract change proposal before simulation results inform governance decisions.
+*Implementation note*: Buffer allocation directly controls floor advancement rate, while the synthetic mint rate adds a predictable drift. Higher Buffer allocation leads to faster floor growth but reduces protocol treasury accumulation. Each scenario should be evaluated for long-term sustainability.
 
 **POMM Funding Scenarios**
 
@@ -175,11 +178,12 @@ Different approaches to funding floor price advancement:
 
 | Scenario | Description | Funding Source |
 |----------|-------------|----------------|
-| Yield-funded | JitoSOL staking yield directed to floor | Backing asset yield |
-| Treasury-funded | Protocol fees allocated to floor advancement | Protocol treasury |
-| Governance-funded | External capital allocation decisions | Governance decisions |
+| Fee + Mint (Primary) | Automatic Buffer accumulation plus 7% mint drift | Fee share + synthetic mint |
+| Yield-enhanced | Variable JitoSOL/SOL spread scenarios | Backing asset yield |
+| Treasury-boosted | Additional protocol treasury allocation | Protocol treasury surplus |
+| External capital | One-off or scheduled third-party funding | Governance / partnerships |
 
-### Governance Cadence Scenarios
+### Supplemental Funding Cadence Scenarios
 
 | Scenario | Allocation Frequency | Execution Delay | Trigger Logic |
 |----------|----------------------|-----------------|----------------|
