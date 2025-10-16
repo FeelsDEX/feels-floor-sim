@@ -285,8 +285,8 @@ class MetricsCollector:
         
         return weekly_data
     
-    def export_metrics(self, file_path: str, format: str = 'json') -> None:
-        """Export metrics to file."""
+    def export_metrics(self, file_path: str = None, format: str = 'json') -> None:
+        """Export metrics to file (defaults to experiments/outputs/data/)."""
         metrics_data = {
             'summary': {
                 'floor_growth_rate_annual': self.calculate_floor_growth_rate(),
@@ -306,8 +306,27 @@ class MetricsCollector:
         }
         
         if format.lower() == 'json':
-            with open(file_path, 'w') as f:
-                json.dump(metrics_data, f, indent=2)
+            if file_path:
+                # Ensure the directory exists
+                import os
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                with open(file_path, 'w') as f:
+                    json.dump(metrics_data, f, indent=2)
+                print(f"Metrics exported to {file_path}")
+            else:
+                # Default to experiments/outputs/data/ directory
+                import os
+                from datetime import datetime
+                
+                output_dir = "experiments/outputs/data"
+                os.makedirs(output_dir, exist_ok=True)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                default_path = f"{output_dir}/simulation_metrics_{timestamp}.json"
+                
+                with open(default_path, 'w') as f:
+                    json.dump(metrics_data, f, indent=2)
+                print(f"Metrics exported to {default_path}")
         else:
             raise ValueError(f"Unsupported format: {format}")
 
@@ -449,7 +468,7 @@ def create_summary_plots(results: SimulationResults, save_path: str = None) -> N
     
     Args:
         results: Simulation results to plot
-        save_path: Optional path to save plots
+        save_path: Optional path to save plots (defaults to experiments/outputs/plots/)
     """
     try:
         import matplotlib.pyplot as plt
@@ -532,10 +551,24 @@ def create_summary_plots(results: SimulationResults, save_path: str = None) -> N
     plt.tight_layout()
     
     if save_path:
+        # Ensure the directory exists
+        import os
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Plots saved to {save_path}")
     else:
-        plt.show()
+        # Default to experiments/outputs/plots/ directory
+        import os
+        from datetime import datetime
+        
+        output_dir = "experiments/outputs/plots"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_path = f"{output_dir}/simulation_summary_{timestamp}.png"
+        
+        plt.savefig(default_path, dpi=150, bbox_inches='tight')
+        print(f"Plots saved to {default_path}")
     
     plt.close()
 
@@ -603,11 +636,25 @@ def create_detailed_analysis_plots(results: SimulationResults, save_path: str = 
     plt.tight_layout()
     
     if save_path:
+        # Ensure the directory exists
+        import os
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         base_path = save_path.replace('.png', '_detailed.png')
         plt.savefig(base_path, dpi=150, bbox_inches='tight')
         print(f"Detailed plots saved to {base_path}")
     else:
-        plt.show()
+        # Default to experiments/outputs/plots/ directory
+        import os
+        from datetime import datetime
+        
+        output_dir = "experiments/outputs/plots"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_path = f"{output_dir}/simulation_detailed_{timestamp}.png"
+        
+        plt.savefig(default_path, dpi=150, bbox_inches='tight')
+        print(f"Detailed plots saved to {default_path}")
     
     plt.close()
 
@@ -667,8 +714,25 @@ def generate_summary_report(results: SimulationResults, file_path: str = None) -
 """
     
     if file_path:
+        # Ensure the directory exists
+        import os
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w') as f:
             f.write(report)
         print(f"Report saved to {file_path}")
+    else:
+        # Default to experiments/outputs/reports/ directory
+        import os
+        from datetime import datetime
+        
+        output_dir = "experiments/outputs/reports"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_path = f"{output_dir}/simulation_report_{timestamp}.md"
+        
+        with open(default_path, 'w') as f:
+            f.write(report)
+        print(f"Report saved to {default_path}")
     
     return report

@@ -5,6 +5,7 @@ default:
     @echo "Available commands:"
     @echo "  dev     - Enter development environment"
     @echo "  sim     - Run simulation (168 hours)"
+    @echo "  sweep   - Run parameter sweep analysis"
     @echo "  test    - Run all tests (pass 'cov' for coverage)"
     @echo "  jupyter - Start Jupyter Lab"
 
@@ -20,10 +21,14 @@ sim:
 test *ARGS:
     #!/usr/bin/env bash
     if [[ "{{ARGS}}" == *"cov"* ]]; then
-        @nix develop --command python -m pytest tests/ --cov=feels_sim --cov-report=term-missing
+        nix develop --command python -m pytest tests/ --cov=feels_sim --cov-report=term-missing
     else
-        @nix develop --command python -m pytest tests/ -v
+        nix develop --command python -m pytest tests/ -v
     fi
+
+# Run parameter sweep analysis
+sweep *ARGS:
+    @nix develop --command python -m feels_sim.cli sweep {{ARGS}}
 
 # Start Jupyter Lab
 jupyter:

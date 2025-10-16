@@ -31,7 +31,31 @@ just test
 
 # Enter development environment
 just dev
+
+# Run parameter sweeps
+just sweep --sweep-type full --hours 168
 ```
+
+### Parameter Sweep Analysis
+
+For systematic parameter exploration and optimization:
+
+```bash
+# Run comprehensive parameter sweep (fee ranges + market conditions)
+just sweep --sweep-type full --hours 168
+
+# Run fee range sweep only
+just sweep --sweep-type fee_range --scenarios current_default protocol_sustainable
+
+# Run market condition sweep only  
+just sweep --sweep-type market_conditions --hours 24
+
+# Direct CLI usage
+python -m feels_sim.cli sweep --help
+python -m feels_sim.cli sweep --sweep-type fee_range --fee-range 20 30 40 50
+```
+
+Results are saved in `experiments/runs/` with timestamped files for analysis.
 
 ### Jupyter Notebook Usage
 
@@ -70,11 +94,17 @@ create_summary_plots(results)
 ```
 feels-floor-sim/
 ├── feels_sim/           # Core simulation package
+│   ├── cli.py           # Command-line interface for parameter sweeps
 │   ├── config.py        # Configuration and parameters
 │   ├── core.py          # Main simulation engine
 │   ├── market.py        # Market environment and price evolution
-│   └── metrics.py       # Analysis and reporting utilities
+│   ├── metrics.py       # Analysis and reporting utilities
+│   └── __main__.py      # Module entry point
+├── notebooks/           # Analysis notebooks
+│   ├── 01_baseline.ipynb      # Baseline scenario analysis
+│   └── 02_parameter_sweep.ipynb # Parameter optimization analysis
 ├── tests/               # Test suite
+├── experiments/         # Results and configuration files
 ├── work/                # Implementation planning
 └── docs/                # Protocol documentation
 ```
