@@ -111,39 +111,17 @@ feels-floor-sim/
 ├─ feels_sim/                # importable simulation package
 │  ├─ __init__.py
 │  ├─ config.py              # dataclasses for SimulationConfig, Scenario definitions
-│  ├─ engine/                # core minute-step engine
-│  │  ├─ __init__.py
-│  │  ├─ state.py            # MarketState, FloorFundingState, ParticipantState
-│  │  ├─ liquidity.py        # tick curve utilities and swap execution helpers
-│  │  ├─ pomm.py             # funding pipeline + deployment logic
-│  │  └─ environment.py      # SOL price model, sentiment, shocks
-│  ├─ participants/          # behavior models
-│  │  ├─ base.py
-│  │  ├─ retail.py
-│  │  ├─ institutional.py
-│  │  ├─ lp.py
-│  │  └─ arb.py
-│  └─ metrics/
-│     ├─ collector.py
-│     ├─ aggregations.py     # reusable day/week/year rollups
-│     └─ reporting.py        # serialization helpers
-├─ experiments/
-│  ├─ configs/               # YAML/JSON scenario files committed to git
-│  ├─ notebooks/             # calibration + exploratory analysis
-│  └─ runs/                  # simulation outputs (gitignored)
-├─ dashboards/               # optional Streamlit/Plotly dashboards
-├─ tests/
-│  ├─ unit/                  # deterministic component tests
-│  └─ integration/           # multi-hour/minute workflows
-└─ scripts/
-   ├─ run_simulation.py      # CLI entry point
-   └─ calibrate.py           # data ingestion + parameter fitting tools
+│  ├─ engine.py              # core simulation engine with state, liquidity, and POMM logic
+│  ├─ participants.py        # all participant behavior models
+│  └─ metrics.py             # metrics collection and reporting
+├─ notebooks/                # analysis notebooks
+├─ test_simulation.py        # all tests in single file
+└─ run_simulation.py         # CLI entry point
 ```
 
 Guidelines:
-- Treat `feels_sim` as a library; experiments should import it but never rely on notebook state.
-- Persist each simulation run’s metadata (scenario hash, git commit, RNG seeds) alongside outputs to keep results reproducible.
-- Gate large artifacts under `experiments/runs/` via `.gitignore` but store summarizing `run.json` files for provenance.
+- Treat `feels_sim` as a library; notebooks should import it for analysis.
+- Keep simulation outputs in notebooks or simple data files for easy review.
 
 ### Simulation Framework Architecture
 
@@ -238,19 +216,15 @@ class FloorFundingState:
 2. **Funding Mechanics**: Build the floor funding pipeline (yield accrual, governance queue, cooldown enforcement) using scripted scenarios to validate multiple deployments per hour.
 3. **Participant Behaviors**: Port behavior models into `participants/`, parameterize them with calibration inputs, and add regression tests to keep aggregate volume/fee responses stable.
 4. **Metrics & Reporting**: Finish `MetricsCollector` and aggregation utilities, ensuring day/week/year rollups match expectations on synthetic data. Wire notebooks/dashboards to the produced parquet or arrow files.
-5. **Optimization & Batch Runs**: Implement CLI batch runners (grid/Bayesian) that iterate over scenario directories, writing outputs and summaries into timestamped folders for review.
+5. **Optimization & Analysis**: Implement parameter exploration tools for scenario analysis and result comparison.
 
-### Testing & Quality Assurance
+### Testing Strategy
 
 - **Unit Tests**: Liquidity math, funding pipeline invariants (no double counting), governance action scheduling, and metric aggregations.
 - **Property Tests**: Ensure floor price never decreases after deployment, deployed capital never exceeds allocations, and fee splits always sum to 100%.
 - **Integration Tests**: Deterministic 24-hour and 7-day scenarios with snapshot comparisons of floor price, protocol accrual, and LP earnings trajectories.
-- **Performance Monitoring**: Profile representative runs; target <1 second per simulated day on baseline hardware and flag regressions in CI.
-- **CI Pipeline**: Run lint (`ruff`), formatting (`black`), type checks (`mypy`), and a short integration scenario on every merge to main.
 
 **Modular Component Design**: Each major system component (market environment, participant behavior, POMM deployment, fee collection) is implemented as a separate module with well-defined interfaces. This modularity enables testing individual components and easy modification of specific behaviors.
-
-**Performance Optimization**: The simulation uses vectorized operations where possible and implements efficient data structures for time series storage. Monte Carlo simulations require thousands of runs, making performance optimization crucial for practical parameter exploration.
 
 ### Data Collection and Analysis Pipeline
 
