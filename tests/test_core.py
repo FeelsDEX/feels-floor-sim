@@ -89,7 +89,7 @@ class TestSimulationLoop:
     
     def test_fee_distribution_invariant(self):
         """Test that fee distribution maintains correct splits."""
-        config = SimulationConfig()  # Default fee splits: 85% Buffer, 10% protocol, 5% creator
+        config = SimulationConfig()  # Default fee splits: 98.5% Buffer, 1% protocol, 0.5% creator
         sim = FeelsSimulation(config)
         
         results = sim.run(hours=24)  # Run long enough to generate meaningful fees
@@ -165,9 +165,9 @@ class TestPhase2Implementation:
                 treasury_pct = (final_state.treasury_balance / total_fees) * 100
                 creator_pct = (final_state.creator_balance / total_fees) * 100
                 
-                assert buffer_pct == pytest.approx(85.0, rel=0.01)
-                assert treasury_pct == pytest.approx(10.0, rel=0.01) 
-                assert creator_pct == pytest.approx(5.0, rel=0.01)
+                assert buffer_pct == pytest.approx(98.5, rel=0.01)
+                assert treasury_pct == pytest.approx(1.0, rel=0.01) 
+                assert creator_pct == pytest.approx(0.5, rel=0.01)
     
     def test_buffer_volume_correlation(self):
         """Test that Buffer growth tracks trading volume."""
@@ -316,8 +316,7 @@ class TestConfigValidation:
     def test_invalid_fee_splits(self):
         """Test that invalid fee splits are caught."""
         config = SimulationConfig()
-        config.buffer_share_pct = 80.0
-        # This will break the sum (80+10+5 = 95)
+        config.treasury_share_pct = 15.0  # Exceeds 10% protocol constraint
         
         with pytest.raises(AssertionError):  # Should fail validation
             config.validate()
@@ -337,3 +336,439 @@ class TestConfigValidation:
         
         with pytest.raises(AssertionError):  # Should fail logical constraint
             config.validate()
+
+
+class TestFeeScenarios:
+    """Test fee split scenario functionality."""
+    
+    def test_current_default_scenario(self):
+        """Test current default fee scenario."""
+        config = SimulationConfig.create_fee_scenario("current_default")
+        config.validate()  # Should not raise
+        
+        assert config.treasury_share_pct == 1.0
+        assert config.creator_share_pct == 0.5
+        assert config.buffer_share_pct == 98.5
+    
+    def test_protocol_sustainable_scenario(self):
+        """Test protocol sustainable fee scenario."""
+        config = SimulationConfig.create_fee_scenario("protocol_sustainable")
+        config.validate()  # Should not raise
+        
+        assert config.treasury_share_pct == 7.0
+        assert config.creator_share_pct == 3.0
+        assert config.buffer_share_pct == 90.0
+    
+    def test_creator_incentive_scenario(self):
+        """Test creator incentive fee scenario."""
+        config = SimulationConfig.create_fee_scenario("creator_incentive")
+        config.validate()  # Should not raise
+        
+        assert config.treasury_share_pct == 5.0
+        assert config.creator_share_pct == 5.0
+        assert config.buffer_share_pct == 90.0
+    
+    def test_balanced_growth_scenario(self):
+        """Test balanced growth fee scenario."""
+        config = SimulationConfig.create_fee_scenario("balanced_growth")
+        config.validate()  # Should not raise
+        
+        assert config.treasury_share_pct == 5.0
+        assert config.creator_share_pct == 3.0
+        assert config.buffer_share_pct == 92.0
+    
+    def test_maximum_protocol_scenario(self):
+        """Test maximum protocol scenario."""
+        config = SimulationConfig.create_fee_scenario("maximum_protocol")
+        config.validate()  # Should not raise
+        
+        assert config.treasury_share_pct == 8.0
+        assert config.creator_share_pct == 2.0
+        assert config.buffer_share_pct == 90.0
+    
+    def test_invalid_scenario_fails_validation(self):
+        """Test that invalid scenario fails validation."""
+        config = SimulationConfig.create_fee_scenario("invalid_high_protocol")
+        
+        with pytest.raises(AssertionError):  # Should fail due to 15% treasury > 10% limit
+            config.validate()
+    
+    def test_unknown_scenario_raises_error(self):
+        """Test that unknown scenarios raise ValueError."""
+        with pytest.raises(ValueError, match="Unknown fee scenario"):
+            SimulationConfig.create_fee_scenario("nonexistent_scenario")
+    
+    def test_scenario_with_overrides(self):
+        """Test scenario creation with parameter overrides."""
+        config = SimulationConfig.create_fee_scenario(
+            "current_default", 
+            base_fee_bps=50,
+            sol_volatility_daily=0.08
+        )
+        config.validate()  # Should not raise
+        
+        # Should have scenario defaults
+        assert config.treasury_share_pct == 1.0
+        assert config.creator_share_pct == 0.5
+        
+        # Should have overridden values
+        assert config.base_fee_bps == 50
+        assert config.sol_volatility_daily == 0.08
+    
+    def test_different_scenarios_produce_different_results(self):
+        """Test that different fee scenarios produce measurably different outcomes."""
+        # Test current default vs protocol sustainable
+        config_default = SimulationConfig.create_fee_scenario("current_default")
+        config_sustainable = SimulationConfig.create_fee_scenario("protocol_sustainable")
+        
+        sim_default = FeelsSimulation(config_default)
+        sim_sustainable = FeelsSimulation(config_sustainable)
+        
+        results_default = sim_default.run(hours=24)
+        results_sustainable = sim_sustainable.run(hours=24)
+        
+        # Should have different treasury balances due to different fee splits
+        treasury_default = results_default.snapshots[-1].floor_state.treasury_balance
+        treasury_sustainable = results_sustainable.snapshots[-1].floor_state.treasury_balance
+        
+        # Sustainable scenario should accumulate much more treasury
+        assert treasury_sustainable > treasury_default * 5  # 10% vs 1% = 10x difference expected
+
+
+class TestPhase4Implementation:
+    """Test Phase 4: Metrics, Aggregates & Reporting."""
+    
+    def test_metrics_collector_basic_functionality(self):
+        """Test basic MetricsCollector functionality."""
+        from feels_sim.metrics import MetricsCollector
+        
+        config = SimulationConfig()
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=6)
+        
+        collector = MetricsCollector()
+        for snapshot in results.snapshots:
+            collector.add_snapshot(snapshot)
+        
+        # Test basic metric calculations
+        floor_growth = collector.calculate_floor_growth_rate()
+        floor_ratio = collector.calculate_floor_to_market_ratio()
+        pomm_count = collector.calculate_pomm_deployment_count()
+        total_volume = collector.calculate_total_volume()
+        total_fees = collector.calculate_total_fees()
+        
+        assert isinstance(floor_growth, float)
+        assert isinstance(floor_ratio, float)
+        assert isinstance(pomm_count, int)
+        assert isinstance(total_volume, float)
+        assert isinstance(total_fees, float)
+        
+        assert floor_ratio >= 0.0
+        assert pomm_count >= 0
+        assert total_volume >= 0.0
+        assert total_fees >= 0.0
+    
+    def test_hourly_aggregates_derivation(self):
+        """Test derivation of hourly aggregates from minute snapshots."""
+        from feels_sim.metrics import MetricsCollector
+        
+        config = SimulationConfig()
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=3)  # 3 hours = 180 minutes
+        
+        collector = MetricsCollector()
+        for snapshot in results.snapshots:
+            collector.add_snapshot(snapshot)
+        
+        hourly_data = collector.derive_hourly_aggregates()
+        
+        assert len(hourly_data) == 3  # 3 hours of data
+        
+        for hour_data in hourly_data:
+            assert 'hour' in hour_data
+            assert 'volume_feelssol' in hour_data
+            assert 'fees_collected' in hour_data
+            assert 'buffer_routed' in hour_data
+            assert 'mint_amount' in hour_data
+            assert 'pomm_deployments' in hour_data
+            assert 'avg_sol_price' in hour_data
+            assert 'avg_floor_price' in hour_data
+            assert 'floor_delta' in hour_data
+            
+            # Values should be non-negative
+            assert hour_data['volume_feelssol'] >= 0
+            assert hour_data['fees_collected'] >= 0
+            assert hour_data['buffer_routed'] >= 0
+            assert hour_data['mint_amount'] >= 0
+            assert hour_data['pomm_deployments'] >= 0
+    
+    def test_daily_weekly_aggregates(self):
+        """Test derivation of daily and weekly aggregates."""
+        from feels_sim.metrics import MetricsCollector
+        
+        config = SimulationConfig()
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=168)  # 1 week = 168 hours
+        
+        collector = MetricsCollector()
+        for snapshot in results.snapshots:
+            collector.add_snapshot(snapshot)
+        
+        daily_data = collector.derive_daily_aggregates()
+        weekly_data = collector.derive_weekly_aggregates()
+        
+        assert len(daily_data) == 7  # 7 days
+        assert len(weekly_data) == 1  # 1 week
+        
+        # Verify daily aggregation sums to weekly
+        daily_volume_sum = sum(d['volume_feelssol'] for d in daily_data)
+        weekly_volume = weekly_data[0]['volume_feelssol']
+        
+        assert daily_volume_sum == pytest.approx(weekly_volume, rel=0.01)
+    
+    def test_advanced_metrics_calculation(self):
+        """Test advanced metrics like LP yield and protocol efficiency."""
+        from feels_sim.metrics import MetricsCollector
+        
+        config = SimulationConfig(enable_participant_behavior=True)
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=24)
+        
+        collector = MetricsCollector()
+        for snapshot in results.snapshots:
+            collector.add_snapshot(snapshot)
+        
+        # Add hourly aggregates for LP yield calculation
+        for aggregate in results.hourly_aggregates:
+            collector.add_hourly_aggregate(aggregate)
+        
+        lp_yield = collector.calculate_lp_yield_apy()
+        efficiency = collector.calculate_protocol_efficiency()
+        utilization = collector.calculate_buffer_utilization()
+        
+        assert isinstance(lp_yield, float)
+        assert isinstance(efficiency, float)
+        assert isinstance(utilization, float)
+        
+        assert lp_yield >= 0.0
+        assert utilization >= 0.0 and utilization <= 1.0
+    
+    def test_analysis_results_integration(self):
+        """Test the analyze_results function with all new metrics."""
+        from feels_sim.metrics import analyze_results
+        
+        config = SimulationConfig(enable_participant_behavior=True)
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=12)
+        
+        analysis = analyze_results(results)
+        
+        # Verify all expected metrics are present
+        expected_keys = [
+            'floor_growth_rate_annual', 'avg_floor_to_market_ratio',
+            'pomm_deployments', 'total_volume', 'total_fees',
+            'lp_yield_apy', 'protocol_efficiency', 'buffer_utilization',
+            'final_treasury_balance', 'final_buffer_balance',
+            'simulation_hours', 'initial_floor_price', 'final_floor_price'
+        ]
+        
+        for key in expected_keys:
+            assert key in analysis, f"Missing key: {key}"
+            assert isinstance(analysis[key], (int, float)), f"Invalid type for {key}"
+    
+    def test_floor_ratio_statistics(self):
+        """Test floor/market ratio statistical analysis."""
+        from feels_sim.metrics import calculate_floor_floor_ratio_stats
+        
+        config = SimulationConfig()
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=6)
+        
+        stats = calculate_floor_floor_ratio_stats(results)
+        
+        expected_stats = ['mean_floor_ratio', 'median_floor_ratio', 'std_floor_ratio',
+                         'min_floor_ratio', 'max_floor_ratio', 'p25_floor_ratio', 'p75_floor_ratio']
+        
+        for stat in expected_stats:
+            assert stat in stats
+            assert isinstance(stats[stat], float)
+            assert stats[stat] >= 0.0
+        
+        # Logical checks
+        assert stats['min_floor_ratio'] <= stats['median_floor_ratio'] <= stats['max_floor_ratio']
+        assert stats['p25_floor_ratio'] <= stats['median_floor_ratio'] <= stats['p75_floor_ratio']
+    
+    def test_pomm_efficiency_metrics(self):
+        """Test POMM deployment efficiency analysis."""
+        from feels_sim.metrics import calculate_pomm_efficiency_metrics
+        
+        config = SimulationConfig(pomm_threshold_tokens=25.0)  # Lower threshold for testing
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=24)
+        
+        pomm_metrics = calculate_pomm_efficiency_metrics(results)
+        
+        expected_metrics = ['pomm_count', 'avg_deployment_size', 'median_deployment_size',
+                           'deployment_frequency', 'total_deployed_amount']
+        
+        for metric in expected_metrics:
+            assert metric in pomm_metrics
+            assert isinstance(pomm_metrics[metric], (int, float))
+            assert pomm_metrics[metric] >= 0
+    
+    def test_volume_elasticity_calculation(self):
+        """Test fee elasticity calculation between different fee scenarios."""
+        from feels_sim.metrics import calculate_volume_elasticity
+        
+        # Test the elasticity calculation function with mock data
+        # Create simple mock results for testing the calculation logic
+        from feels_sim.core import SimulationSnapshot, SimulationResults, FloorFundingState
+        
+        # Mock low fee results (higher volume)
+        low_snapshots = []
+        for i in range(60):  # 1 hour of data
+            snapshot = SimulationSnapshot(
+                timestamp=i,
+                sol_price_usd=100.0,
+                floor_price_feelssol=0.95,
+                floor_price_usd=95.0,
+                floor_state=FloorFundingState(),
+                volume_feelssol=1000.0,  # Higher volume
+                fees_collected=3.0,
+                events={'pomm_deployed': False}
+            )
+            low_snapshots.append(snapshot)
+        
+        # Mock high fee results (lower volume)
+        high_snapshots = []
+        for i in range(60):  # 1 hour of data
+            snapshot = SimulationSnapshot(
+                timestamp=i,
+                sol_price_usd=100.0,
+                floor_price_feelssol=0.95,
+                floor_price_usd=95.0,
+                floor_state=FloorFundingState(),
+                volume_feelssol=800.0,  # Lower volume
+                fees_collected=6.4,
+                events={'pomm_deployed': False}
+            )
+            high_snapshots.append(snapshot)
+        
+        # Create mock results
+        low_results = SimulationResults(low_snapshots, [], SimulationConfig())
+        high_results = SimulationResults(high_snapshots, [], SimulationConfig())
+        
+        elasticity = calculate_volume_elasticity(low_results, high_results)
+        
+        expected_keys = ['low_fee_volume', 'high_fee_volume', 'volume_change_pct', 'elasticity_observed']
+        
+        for key in expected_keys:
+            assert key in elasticity
+        
+        # With mock data, should observe elasticity
+        assert elasticity['elasticity_observed'] == True
+        assert elasticity['low_fee_volume'] > elasticity['high_fee_volume']
+        assert elasticity['low_fee_volume'] == 60000.0  # 60 * 1000
+        assert elasticity['high_fee_volume'] == 48000.0  # 60 * 800
+        assert elasticity['volume_change_pct'] == 0.25  # (60000-48000)/48000
+    
+    def test_metrics_export_functionality(self):
+        """Test metrics export to file."""
+        from feels_sim.metrics import MetricsCollector
+        import tempfile
+        import json
+        import os
+        
+        config = SimulationConfig()
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=4)
+        
+        collector = MetricsCollector()
+        for snapshot in results.snapshots:
+            collector.add_snapshot(snapshot)
+        
+        # Test JSON export
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            export_path = f.name
+        
+        try:
+            collector.export_metrics(export_path, format='json')
+            
+            # Verify file was created and contains expected structure
+            assert os.path.exists(export_path)
+            
+            with open(export_path, 'r') as f:
+                data = json.load(f)
+            
+            assert 'summary' in data
+            assert 'aggregates' in data
+            assert 'hourly' in data['aggregates']
+            assert 'daily' in data['aggregates']
+            assert 'weekly' in data['aggregates']
+            
+        finally:
+            if os.path.exists(export_path):
+                os.unlink(export_path)
+    
+    def test_visualization_functions(self):
+        """Test that visualization functions run without errors."""
+        from feels_sim.metrics import create_summary_plots, create_detailed_analysis_plots
+        import tempfile
+        import os
+        
+        config = SimulationConfig()
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=6)
+        
+        # Test summary plots
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            plot_path = f.name
+        
+        try:
+            # Should not raise exceptions
+            create_summary_plots(results, save_path=plot_path)
+            create_detailed_analysis_plots(results, save_path=plot_path)
+            
+        except ImportError:
+            # Skip if matplotlib not available
+            pytest.skip("matplotlib not available")
+        finally:
+            for path in [plot_path, plot_path.replace('.png', '_detailed.png')]:
+                if os.path.exists(path):
+                    os.unlink(path)
+    
+    def test_summary_report_generation(self):
+        """Test markdown summary report generation."""
+        from feels_sim.metrics import generate_summary_report
+        import tempfile
+        import os
+        
+        config = SimulationConfig(enable_participant_behavior=True)
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=8)
+        
+        # Test report generation
+        report_content = generate_summary_report(results)
+        
+        assert isinstance(report_content, str)
+        assert len(report_content) > 0
+        assert "# Feels Simulation Summary Report" in report_content
+        assert "## Simulation Overview" in report_content
+        assert "## Key Metrics" in report_content
+        
+        # Test file export
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            report_path = f.name
+        
+        try:
+            generate_summary_report(results, file_path=report_path)
+            assert os.path.exists(report_path)
+            
+            with open(report_path, 'r') as f:
+                file_content = f.read()
+            
+            assert file_content == report_content
+            
+        finally:
+            if os.path.exists(report_path):
+                os.unlink(report_path)
