@@ -248,7 +248,7 @@ The simulation models distinct participant types with different behavioral patte
 - Price sensitivity: High (will wait for better prices)
 - Sentiment correlation: Strong positive correlation with recent price performance
 
-**Institutional Traders** execute larger trades with more sophisticated strategies. They provide market efficiency through arbitrage and may adjust strategies based on protocol parameters:
+**Algo Traders** execute larger trades with more sophisticated strategies. They provide market efficiency through arbitrage and may adjust strategies based on protocol parameters:
 - Trade size distribution: Log-normal with mean 100-10,000 FeelsSOL
 - Frequency: 10-50 trades per day with irregular clustering
 - Price sensitivity: Lower (willing to pay for immediacy)
@@ -295,7 +295,7 @@ def generate_trade_size(participant_type, market_conditions):
     )
 ```
 
-**Fee Sensitivity Modeling**: Different participant types exhibit varying sensitivity to fee changes. Retail traders may be highly sensitive to percentage fees, while institutional traders focus more on absolute costs. The simulation captures these differences through elasticity parameters that determine how trading volume responds to fee changes.
+**Fee Sensitivity Modeling**: Different participant types exhibit varying sensitivity to fee changes. Retail traders may be highly sensitive to percentage fees, while algo traders focus more on absolute costs. The simulation captures these differences through elasticity parameters that determine how trading volume responds to fee changes.
 
 ### Preference Distribution Simulation
 

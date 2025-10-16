@@ -143,7 +143,7 @@ The assumed composition and activity levels of market participants:
 
 | Metric | Value | Description |
 |--------|-------|-------------|
-| Participant mix | 60% retail, 25% institutional, 10% LPs, 5% arbitrageurs | Representative distribution |
+| Participant mix | 60% retail, 25% algo, 10% LPs, 5% arbitrageurs | Representative distribution |
 | Daily volume | 10,000-50,000 FeelsSOL | Expected trading activity |
 | Average trade size | 100 FeelsSOL | Geometric mean across all participants |
 
