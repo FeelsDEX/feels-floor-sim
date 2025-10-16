@@ -67,7 +67,7 @@ These parameters determine how collected fees are allocated between different st
 | Parameter | Description | Current Value | Adjustable |
 |-----------|-------------|---------------|------------|
 | `buffer_share_pct` | Percentage to Buffer for automatic POMM deployment | ~85% | ✓ |
-| `protocol_share_pct` | Percentage to protocol treasury | ~10% | ✓ |
+| `treasury_share_pct` | Percentage to protocol treasury | ~10% | ✓ |
 | `creator_share_pct` | Percentage to token creator | ~5% | ✓ |
 | `pomm_funding_source` | How floor advancement is funded | Automatic fee accumulation | Fixed |
 
