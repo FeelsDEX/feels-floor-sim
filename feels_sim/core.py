@@ -16,7 +16,7 @@ def tick_to_price(tick: int) -> float:
 
 def price_to_tick(price: float) -> int:
     """Convert price to tick using log formula."""
-    return int(math.log(price) / math.log(1.0001))  # Inverse of tick_to_price
+    return round(math.log(price) / math.log(1.0001))  # Inverse of tick_to_price
 
 
 def tick_to_sqrt_price_x64(tick: int) -> int:

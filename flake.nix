@@ -17,6 +17,8 @@
           numpy
           seaborn
           ipykernel
+          pytest
+          pytest-cov
         ]);
       in
       {

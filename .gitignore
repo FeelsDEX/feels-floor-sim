@@ -23,6 +23,9 @@ result-*
 dist/
 build/
 .pytest_cache/
+.coverage
+htmlcov/
+.tox/
 
 # Jupyter
 .ipynb_checkpoints

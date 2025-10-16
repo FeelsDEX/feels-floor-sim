@@ -145,6 +145,72 @@ class TestSimulationLoop:
             assert time_diff >= config.pomm_cooldown_seconds / 60  # Must respect cooldown
 
 
+class TestPhase2Implementation:
+    """Test Phase 2: Fee Distribution & Funding Pipeline."""
+    
+    def test_fee_routing_stability(self):
+        """Test that fee splits remain stable regardless of base fee."""
+        fees_to_test = [10, 30, 50, 100]  # Different base fee levels
+        
+        for base_fee in fees_to_test:
+            config = SimulationConfig(base_fee_bps=base_fee)
+            sim = FeelsSimulation(config)
+            results = sim.run(hours=24)
+            
+            total_fees = sum(s.fees_collected for s in results.snapshots)
+            final_state = results.snapshots[-1].floor_state
+            
+            if total_fees > 0:
+                buffer_pct = (final_state.buffer_routed_cumulative / total_fees) * 100
+                treasury_pct = (final_state.treasury_balance / total_fees) * 100
+                creator_pct = (final_state.creator_balance / total_fees) * 100
+                
+                assert buffer_pct == pytest.approx(85.0, rel=0.01)
+                assert treasury_pct == pytest.approx(10.0, rel=0.01) 
+                assert creator_pct == pytest.approx(5.0, rel=0.01)
+    
+    def test_buffer_volume_correlation(self):
+        """Test that Buffer growth tracks trading volume."""
+        config = SimulationConfig()
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=48)
+        
+        total_volume = sum(s.volume_feelssol for s in results.snapshots)
+        buffer_accumulated = results.snapshots[-1].floor_state.buffer_routed_cumulative
+        expected_buffer = total_volume * (config.base_fee_bps / 10000.0) * (config.buffer_share_pct / 100.0)
+        
+        assert buffer_accumulated == pytest.approx(expected_buffer, rel=0.01)
+    
+    def test_pomm_deployment_thresholds(self):
+        """Test automatic POMM deployment when Buffer thresholds are met."""
+        config = SimulationConfig(pomm_threshold_tokens=50.0)  # Lower threshold for testing
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=72)
+        
+        # Should have deployments when buffer + mintable > threshold
+        deployments = [s for s in results.snapshots if s.events.get("pomm_deployed", False)]
+        assert len(deployments) > 0, "Should have POMM deployments when thresholds are met"
+        
+        # Verify cooldown enforcement
+        if len(deployments) > 1:
+            deployment_times = [s.timestamp for s in deployments]
+            for i in range(1, len(deployment_times)):
+                time_diff = deployment_times[i] - deployment_times[i-1]
+                assert time_diff >= config.pomm_cooldown_seconds / 60
+    
+    def test_synthetic_minting_drift(self):
+        """Test that minting matches configured 7% APR drift."""
+        config = SimulationConfig(jitosol_yield_apy=0.07)
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=24 * 30)  # 30 days
+        
+        final_mint = results.snapshots[-1].floor_state.mint_cumulative
+        days_elapsed = len(results.snapshots) / (24 * 60)
+        expected_mint = config.total_supply * config.jitosol_yield_apy * (days_elapsed / 365.25)
+        
+        assert final_mint == pytest.approx(expected_mint, rel=0.01)
+
+
 class TestConfigValidation:
     """Test configuration validation."""
     
