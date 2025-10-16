@@ -36,10 +36,6 @@
             
             # Setup messages and kernel registration
             echo "Python development environment loaded"
-            echo "Available commands:"
-            echo "  jupyter notebook - Start Jupyter notebook server"
-            echo "  jupyter lab - Start JupyterLab server"
-            echo "  python - Python interpreter with packages"
             
             # Auto-register Jupyter kernel if not already registered
             KERNEL_NAME="feels-floor-sim"
