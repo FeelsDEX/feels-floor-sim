@@ -32,6 +32,8 @@ htmlcov/
 
 # Simulation outputs and data
 experiments/runs/
+experiments/outputs/
+experiments/data/
 *.parquet
 *.arrow
 *.h5

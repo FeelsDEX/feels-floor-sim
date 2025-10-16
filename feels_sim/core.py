@@ -6,6 +6,7 @@ from typing import List, Dict, Tuple
 import numpy as np
 
 from .config import SimulationConfig
+from .participants import ParticipantPool, calculate_volume_from_orders, calculate_market_conditions
 
 
 # Tick-to-price conversion utilities (Uniswap V3 compatible)
@@ -107,6 +108,14 @@ class FeelsSimulation:
         
         # Random number generator for deterministic behavior
         self.rng = np.random.RandomState(42)
+        
+        # Initialize participant pool
+        self.participant_pool = None
+        if config.enable_participant_behavior:
+            self.participant_pool = ParticipantPool(config.participant_config, self.rng)
+        
+        # Track previous SOL price for participant behavior
+        self.prev_sol_price_usd = self.sol_price_usd
     
     def _update_floor_price(self):
         """Update floor price based on allocated reserves."""
@@ -124,6 +133,9 @@ class FeelsSimulation:
     
     def step_minute(self):
         """Execute one minute of simulation."""
+        # Store previous SOL price for participant behavior
+        self.prev_sol_price_usd = self.sol_price_usd
+        
         # Update market environment (SOL price evolution)
         self._update_sol_price()
         
@@ -186,11 +198,27 @@ class FeelsSimulation:
         self.floor_state.mint_cumulative += mint_growth
 
     def _generate_trading_activity(self) -> Tuple[float, float]:
-        """Generate placeholder trading volume and fees."""
-        # Simple volume model: base volume with some randomness
-        base_volume = 1000.0  # Base daily volume in FeelsSOL
-        daily_volume = base_volume * (1 + self.rng.normal(0, 0.1))  # 10% random variation
-        minute_volume = daily_volume / (24 * 60)  # Convert to per-minute
+        """Generate trading volume and fees from participant behavior."""
+        if self.participant_pool is None:
+            # Fallback to placeholder model if participants disabled
+            base_volume = 1000.0  # Base daily volume in FeelsSOL
+            daily_volume = base_volume * (1 + self.rng.normal(0, 0.1))  # 10% random variation
+            minute_volume = daily_volume / (24 * 60)  # Convert to per-minute
+        else:
+            # Use participant behavior model
+            fee_rate = self.config.base_fee_bps / 10000.0
+            volatility = self.config.sol_volatility_daily
+            
+            market_conditions = calculate_market_conditions(
+                self.sol_price_usd, 
+                self.prev_sol_price_usd,
+                fee_rate,
+                volatility
+            )
+            
+            # Generate orders from all participants
+            orders = self.participant_pool.generate_orders(self.current_minute, market_conditions)
+            minute_volume = calculate_volume_from_orders(orders)
         
         # Calculate fees from volume
         fee_rate = self.config.base_fee_bps / 10000.0  # Convert bps to decimal
@@ -264,6 +292,15 @@ class FeelsSimulation:
             "mint_cumulative": hour_snapshots[-1].floor_state.mint_cumulative,
             "deployed_feelssol": hour_snapshots[-1].floor_state.deployed_feelssol
         }
+        
+        # Add participant metrics if enabled
+        if self.participant_pool:
+            participant_metrics = self.participant_pool.get_participant_metrics()
+            hourly_data.update({
+                "participant_metrics": participant_metrics,
+                "lp_positions": participant_metrics.get("total_lp_positions", 0),
+                "lp_fees_earned": participant_metrics.get("total_lp_fees", 0.0)
+            })
         
         self.hourly_aggregates.append(hourly_data)
     

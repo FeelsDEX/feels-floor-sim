@@ -1,0 +1,44 @@
+{
+  "simulation_config": {
+    "initial_sol_price_usd": 100.0,
+    "sol_volatility_daily": 0.05,
+    "sol_trend_bias": 0.0,
+    "base_fee_bps": 30,
+    "buffer_share_pct": 85.0,
+    "treasury_share_pct": 10.0,
+    "creator_share_pct": 5.0,
+    "jitosol_yield_apy": 0.07,
+    "enable_participant_behavior": true
+  },
+  "participant_config": {
+    "retail_count": 80,
+    "retail_base_frequency": 3.0,
+    "retail_size_mean": 75.0,
+    "retail_size_variance": 1.0,
+    "retail_fee_sensitivity": 2.5,
+    "retail_sentiment_sensitivity": 0.8,
+    "algo_count": 15,
+    "algo_base_frequency": 25.0,
+    "algo_size_mean": 1500.0,
+    "algo_size_variance": 1.2,
+    "algo_fee_sensitivity": 0.8,
+    "algo_sentiment_sensitivity": 0.3,
+    "lp_count": 25,
+    "lp_position_size_mean": 8000.0,
+    "lp_position_size_variance": 1.1,
+    "lp_fee_sensitivity": 3.5,
+    "lp_rebalance_frequency": 8.0,
+    "arb_count": 8,
+    "arb_size_mean": 800.0,
+    "arb_threshold_bps": 8.0,
+    "arb_response_time": 1.5
+  },
+  "calibration_metadata": {
+    "created_date": "2024-10-16",
+    "data_sources": [
+      "baseline_defi_patterns"
+    ],
+    "version": "1.1.0",
+    "description": "Baseline configuration with AlgoTrader"
+  }
+}

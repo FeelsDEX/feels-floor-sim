@@ -1,6 +1,10 @@
 """Configuration for Feels simulation."""
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+from .participants import ParticipantConfig
 @dataclass
 class SimulationConfig:
     """Configuration for a single simulation run."""
@@ -35,6 +39,14 @@ class SimulationConfig:
     # Initial conditions
     initial_deployed_feelssol: float = 1000.0  # Initial FeelsSOL deployed as floor liquidity
     initial_buffer_balance: float = 0.0
+    
+    # Participant behavior configuration
+    enable_participant_behavior: bool = True
+    participant_config: ParticipantConfig = None
+    
+    def __post_init__(self):
+        if self.participant_config is None:
+            self.participant_config = ParticipantConfig()
 
     def validate(self) -> None:
         """Validate configuration parameters."""
@@ -44,3 +56,28 @@ class SimulationConfig:
         assert 0 < self.pomm_deployment_ratio <= 1.0, "Deployment ratio must be (0, 1]"
         assert self.jitosol_yield_apy >= 0, "Yield cannot be negative"
         assert self.circulating_supply <= self.total_supply, "Circulating supply cannot exceed total supply"
+    
+    @classmethod
+    def from_calibration_file(cls, file_path: str, overrides: Optional[dict] = None):
+        """Load configuration from calibration JSON file with optional overrides."""
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Calibration file not found: {file_path}")
+        
+        with open(path, 'r') as f:
+            data = json.load(f)
+        
+        # Extract configurations
+        sim_config = data.get('simulation_config', {})
+        participant_config_data = data.get('participant_config', {})
+        
+        # Apply overrides
+        if overrides:
+            sim_config.update(overrides.get('simulation_config', {}))
+            participant_config_data.update(overrides.get('participant_config', {}))
+        
+        # Create participant config
+        participant_config = ParticipantConfig(**participant_config_data)
+        sim_config['participant_config'] = participant_config
+        
+        return cls(**sim_config)

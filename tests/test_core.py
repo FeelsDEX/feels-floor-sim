@@ -211,6 +211,100 @@ class TestPhase2Implementation:
         assert final_mint == pytest.approx(expected_mint, rel=0.01)
 
 
+class TestPhase3Implementation:
+    """Test Phase 3: Participant Behavior & Calibration Inputs."""
+    
+    def test_participant_behavior_integration(self):
+        """Test that participant behavior affects trading volume."""
+        # Test with participant behavior enabled
+        config_with_participants = SimulationConfig(enable_participant_behavior=True)
+        sim_with = FeelsSimulation(config_with_participants)
+        results_with = sim_with.run(hours=12)
+        
+        # Test with participant behavior disabled
+        config_without_participants = SimulationConfig(enable_participant_behavior=False)
+        sim_without = FeelsSimulation(config_without_participants)
+        results_without = sim_without.run(hours=12)
+        
+        volume_with = sum(s.volume_feelssol for s in results_with.snapshots)
+        volume_without = sum(s.volume_feelssol for s in results_without.snapshots)
+        
+        # Volumes should be different when participant behavior is enabled
+        assert volume_with != volume_without
+        # Participant behavior should generally increase volume
+        assert volume_with > volume_without * 0.5  # At least some volume difference
+    
+    def test_fee_elasticity_behavior(self):
+        """Test that participants respond to fee changes."""
+        from feels_sim.participants import ParticipantConfig
+        
+        # Create config with high fee sensitivity
+        sensitive_config = ParticipantConfig(
+            retail_fee_sensitivity=3.0,
+            algo_fee_sensitivity=1.5
+        )
+        
+        # Test high vs low fees
+        high_fee_config = SimulationConfig(base_fee_bps=60, participant_config=sensitive_config)
+        low_fee_config = SimulationConfig(base_fee_bps=20, participant_config=sensitive_config)
+        
+        high_fee_sim = FeelsSimulation(high_fee_config)
+        low_fee_sim = FeelsSimulation(low_fee_config)
+        
+        high_results = high_fee_sim.run(hours=24)
+        low_results = low_fee_sim.run(hours=24)
+        
+        high_volume = sum(s.volume_feelssol for s in high_results.snapshots)
+        low_volume = sum(s.volume_feelssol for s in low_results.snapshots)
+        
+        # Lower fees should lead to higher volume (fee elasticity)
+        assert low_volume > high_volume, f"Expected low fee volume ({low_volume}) > high fee volume ({high_volume})"
+    
+    def test_calibration_file_loading(self):
+        """Test loading configuration from calibration files."""
+        # This test assumes the baseline config file exists
+        try:
+            config = SimulationConfig.from_calibration_file('experiments/configs/params_baseline.json')
+            assert config.enable_participant_behavior == True
+            assert config.participant_config is not None
+            assert config.participant_config.retail_count > 0
+            assert config.participant_config.algo_count > 0
+            
+            # Test with overrides
+            overrides = {
+                'simulation_config': {'base_fee_bps': 40},
+                'participant_config': {'retail_count': 50, 'algo_count': 8}
+            }
+            config_override = SimulationConfig.from_calibration_file(
+                'experiments/configs/params_baseline.json', 
+                overrides=overrides
+            )
+            assert config_override.base_fee_bps == 40
+            assert config_override.participant_config.retail_count == 50
+            assert config_override.participant_config.algo_count == 8
+            
+        except FileNotFoundError:
+            # Skip test if calibration file doesn't exist
+            pytest.skip("Calibration file not found")
+    
+    def test_participant_metrics_collection(self):
+        """Test that participant metrics are collected in hourly aggregates."""
+        config = SimulationConfig(enable_participant_behavior=True)
+        sim = FeelsSimulation(config)
+        results = sim.run(hours=3)
+        
+        # Should have participant metrics in hourly aggregates
+        assert len(results.hourly_aggregates) >= 2
+        for hour_data in results.hourly_aggregates:
+            assert 'participant_metrics' in hour_data
+            assert 'lp_positions' in hour_data
+            assert 'lp_fees_earned' in hour_data
+            
+            metrics = hour_data['participant_metrics']
+            assert 'total_participants' in metrics
+            assert metrics['total_participants'] > 0
+
+
 class TestConfigValidation:
     """Test configuration validation."""
     
