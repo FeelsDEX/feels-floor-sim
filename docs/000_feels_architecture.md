@@ -43,7 +43,7 @@ The Buffer (τ - tau) serves as a thermodynamic reservoir within each market. It
 
 ### Integrated Fee Structure
 
-The fee system in Feels operates as the primary value capture mechanism. It fuels the protocol's economic flywheel. Every swap incurs a total fee composed of two components. A base fee provides predictable revenue. An impact fee scales with price movement to account for the cost of liquidity provision.
+The fee system in Feels operates as the primary value capture mechanism. It drives the protocol's economic dynamics. Every swap incurs a total fee composed of two components. A base fee provides predictable revenue. An impact fee scales with price movement to account for the cost of liquidity provision.
 
 **Base fees** represent a fixed percentage charged on every trade. They are currently set at 30 basis points (0.30%) by default. This fee is configurable per market through governance and can range from 0% to 10%. This allows for fine-tuning based on market characteristics and competitive dynamics. The base fee provides steady revenue that flows into the system regardless of price volatility.
 
@@ -204,7 +204,7 @@ Markets in Feels progress through a carefully designed lifecycle. This lifecycle
 
 The true power of Feels emerges from how its components integrate throughout the market lifecycle. In early phases, JIT liquidity (when enabled) provides immediate trading capability. Meanwhile, fees begin accumulating in the Buffer. As trading volume grows, the Buffer reaches deployment thresholds. This triggers POMM placements that establish and advance floor prices.
 
-This creates a positive feedback loop. Better floor prices attract more participants. This increases trading volume and generates more fees. More fees enable more POMM deployment and further advance floor prices. The hub-and-spoke architecture amplifies this effect by concentrating all trading activity. This ensures that every transaction contributes to the economic flywheel.
+This creates a positive feedback loop. Better floor prices attract more participants. This increases trading volume and generates more fees. More fees enable more POMM deployment and further advance floor prices. The hub-and-spoke architecture amplifies this effect by concentrating all trading activity. This ensures that every transaction contributes to the economic system.
 
 The integrated nature of these systems means that parameter tuning must consider cross-component effects. Adjusting fee splits affects Buffer accumulation rates. This influences POMM deployment frequency. This impacts floor advancement speed.
 
