@@ -102,6 +102,8 @@ These settings define how capital flows through the funding pipeline:
 | `liquidity_refresh_interval_minutes` | Frequency of sampling full liquidity curve snapshots | 1-60 minutes |
 | `max_simulated_liquidity_range` | Tick window tracked around the current price | ±500-2000 ticks |
 
+*Implementation note*: Scenario presets and calibration parameter files live under `experiments/configs/`. The CLI (`scripts/run_simulation.py`) loads these YAML/JSON files and can override individual fields via command-line flags or environment variables to keep experimentation reproducible without adding new modules.
+
 ---
 
 ## Simulation Parameters and Scenarios

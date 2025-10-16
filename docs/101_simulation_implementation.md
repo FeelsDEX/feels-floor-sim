@@ -107,21 +107,31 @@ A suggested layout keeps reusable simulation code separated from experiments and
 
 ```text
 feels-floor-sim/
-├─ pyproject.toml            # tooling + dependency pinning
-├─ feels_sim/                # importable simulation package
+├─ pyproject.toml              # tooling + dependency pinning
+├─ feels_sim/                  # importable simulation package
 │  ├─ __init__.py
-│  ├─ config.py              # dataclasses for SimulationConfig, Scenario definitions
-│  ├─ engine.py              # core simulation engine with state, liquidity, and POMM logic
-│  ├─ participants.py        # all participant behavior models
-│  └─ metrics.py             # metrics collection and reporting
-├─ notebooks/                # analysis notebooks
-├─ test_simulation.py        # all tests in single file
-└─ run_simulation.py         # CLI entry point
+│  ├─ config.py                # SimulationConfig + scenario loader
+│  ├─ core.py                  # minute engine, state dataclasses, liquidity math, POMM logic
+│  ├─ market.py                # SOL price + sentiment models
+│  ├─ participants.py          # all participant behaviors in one place
+│  └─ metrics.py               # metrics collector and reporting helpers
+├─ scripts/
+│  └─ run_simulation.py        # CLI entry point for single/batch runs
+├─ tests/
+│  └─ test_core.py             # core and metrics unit tests (expand only if necessary)
+├─ experiments/
+│  ├─ configs/                 # scenario + calibration JSON/YAML
+│  └─ runs/                    # generated outputs (gitignored)
+└─ notebooks/
+   ├─ calibration.ipynb        # parameter fitting
+   ├─ 01_baseline.ipynb        # exploratory analysis
+   └─ 02_parameter_sweep.ipynb # batch result review
 ```
 
 Guidelines:
-- Treat `feels_sim` as a library; notebooks should import it for analysis.
-- Keep simulation outputs in notebooks or simple data files for easy review.
+- Keep simulation logic confined to the handful of modules above; avoid new files unless required.
+- Use configuration files and notebooks for variability rather than duplicating code.
+- Persist each simulation run’s metadata (scenario hash, git commit, seeds) alongside exports for reproducibility.
 
 ### Simulation Framework Architecture
 
