@@ -390,14 +390,37 @@ def create_summary_plots(results: SimulationResults, save_path: str = None,
     df = pd.DataFrame(data)
     
     # Plot 1: Price evolution with confidence bands
-    sns.lineplot(data=df, x='hours', y='sol_price_usd', label='SOL Price', 
-                alpha=style.alpha, linewidth=style.linewidth, ax=axes[0, 0])
-    sns.lineplot(data=df, x='hours', y='floor_price_usd', label='Floor Price', 
-                alpha=style.alpha, linewidth=style.linewidth, ax=axes[0, 0])
-    axes[0, 0].set_xlabel('Hours')
-    axes[0, 0].set_ylabel('Price (USD)')
-    axes[0, 0].set_title('Price Evolution')
-    axes[0, 0].legend()
+    base_floor = df['floor_price_usd'].iloc[0]
+    df['floor_change_bps'] = (df['floor_price_usd'] / base_floor - 1.0) * 10_000
+
+    price_ax = axes[0, 0]
+    sol_line = price_ax.plot(
+        df['hours'],
+        df['sol_price_usd'],
+        label='SOL Price',
+        color=style.primary_color,
+        linewidth=style.linewidth,
+        alpha=style.alpha,
+    )
+    price_ax.set_xlabel('Hours')
+    price_ax.set_ylabel('SOL Price (USD)')
+
+    floor_ax = price_ax.twinx()
+    floor_line = floor_ax.plot(
+        df['hours'],
+        df['floor_change_bps'],
+        label='Floor Δ (bps)',
+        color=style.secondary_color,
+        linewidth=style.linewidth,
+        linestyle='--',
+        alpha=style.alpha,
+    )
+    floor_ax.set_ylabel('Floor Change (bps)')
+
+    price_ax.set_title('Price & Floor Evolution')
+    lines = sol_line + floor_line
+    labels = [line.get_label() for line in lines]
+    price_ax.legend(lines, labels, loc='upper left', frameon=True)
     
     # Plot 2: Trading volume with trend line
     sns.scatterplot(data=df, x='hours', y='volume_feelssol', alpha=style.alpha-0.2, 

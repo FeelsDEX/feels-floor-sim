@@ -59,8 +59,12 @@ class SimulationSnapshot:
     floor_state: FloorFundingState              # Complete funding state snapshot
     volume_feelssol: float = 0.0                # Trading volume this minute
     fees_collected: float = 0.0                 # Swap fees collected this minute
-    jit_volume_boost: float = 0.0               # Additional volume from JIT liquidity
+    jit_virtual_liquidity: float = 0.0         # Virtual liquidity deployed by JIT
+    jit_absorbed_volume: float = 0.0           # Volume absorbed by contrarian JIT placement
     jit_active: bool = False                    # Whether JIT was active this minute
+    jit_side: Optional[str] = None              # Direction of JIT placement ('ask' or 'bid')
+    jit_range: Optional[Tuple[int, int]] = None # Tick range covered by the virtual position
+    lp_fees_distributed: float = 0.0            # Fees credited to LPs this minute
     events: Dict[str, bool] = None              # Significant events (POMM deployments)
     participant_volumes: Dict[str, float] = None  # Volume by participant type
     price_path: Tuple[int, int] = (0, 0)          # Tick range traversed this minute

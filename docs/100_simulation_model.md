@@ -118,7 +118,7 @@ Therefore: $$\text{Floor Price (USD)} = \text{Floor Price (FeelsSOL)} \times \te
 
 ### Reserve Accumulation Dynamics
 
-**Critical Update**: Floor price reserves automatically accumulate from trading fees. The implementation shows that after Protocol (1.0%) and Creator (0.5%) fees are taken, the remaining portion of fees goes directly to the Buffer (τ) for automatic POMM deployment, creating fee-driven floor advancement.
+**Implementation Status**: Floor price reserves automatically accumulate from trading fees. The simulation correctly implements the on-chain fee model where after Protocol (1.0%) and Creator (0.5%) fees are taken, the remaining portion of fees goes directly to the Buffer (τ) for automatic POMM deployment, creating fee-driven floor advancement.
 
 **Reserve Sources**:
 1. **Buffer Fee Accumulation**: ~85% of every swap fee moves directly into Buffer for deployment
@@ -189,43 +189,31 @@ If insufficient observations exist (e.g., early in the simulation), POMM and JIT
 
 ## JIT Liquidity Implementation
 
-The simulation implements a budget-driven Just-In-Time (JIT) liquidity system that provides early-stage market bootstrapping through volume amplification:
+The simulation now mirrors the on-chain "virtual concentrated liquidity" approach instead of simply inflating swap size. JIT evaluates every minute whether the protocol should temporarily supply contrarian liquidity that absorbs flow without permanently deploying capital.
 
 ### Current JIT Features
 
-**Budget-Driven Liquidity System** (`JitManager` class):
-- **Per-minute budget caps**: 5% of current Buffer balance maximum per minute (slot)
-- **Per-swap budget caps**: 3% of current Buffer balance maximum per individual trade
-- **Age-based decay**: JIT effectiveness decreases as markets mature (strongest when newest)
-- **Volume boost mechanism**: Applies configurable volume multiplier (30% default) with budget constraints
+**Budget-Driven Virtual Liquidity** (`JitController` class):
+- **Per-minute and per-swap caps**: Portions of the Buffer (e.g., 3% per swap, 5% per minute) cap how much virtual capital can be mobilized.
+- **Buffer health guardrails**: Automatically disables when the Buffer drops below a configurable share of its initial level.
+- **Maturity decay**: Optional maximum-duration setting to wind down JIT support as markets age.
 
-**Safety Mechanisms**:
-- **Buffer health threshold**: Auto-disables when Buffer < 30% of initial balance
-- **Maximum duration limit**: Auto-disables after 24 hours by default
-- **Budget tracking**: Prevents rapid drainage through per-slot consumption limits
+**Contrarian Placement**:
+- Derives a short TWAP anchor from the price history to avoid reacting to manipulative spikes.
+- Places asks above price into net buying flow and bids below price into net selling flow.
+- Applies a configurable multiplier to size virtual liquidity relative to observed order flow while respecting budget caps.
 
-**Configuration Parameters**:
-```python
-jit_enabled: bool = True                    # Enable/disable JIT system
-jit_base_cap_bps: int = 300                # Per-swap budget (3% of Buffer)
-jit_per_slot_cap_bps: int = 500            # Per-minute budget (5% of Buffer)
-jit_volume_boost_factor: float = 0.3       # Volume increase factor (30%)
-jit_max_duration_hours: int = 24           # Auto-disable after hours
-jit_buffer_health_threshold: float = 0.3   # Disable threshold (30% of initial)
-```
-
-**Economic Integration**:
-- Boosted volume routes through standard 85/10/5 fee split
-- Additional fees accumulate in Buffer for POMM deployment
-- No separate liquidity placement - pure volume amplification approach
+**Execution Effects**:
+- Virtual liquidity absorbs part of the net order, reducing effective price impact.
+- The additional liquidity only exists for the swap in question—no permanent position is minted.
+- JIT activity is recorded as absorbed volume and temporary liquidity for downstream analytics.
 
 ### JIT Limitations
 
-The current implementation provides **economic impact modeling** rather than full on-chain replication:
-- **No contrarian placement**: Volume boosts are symmetric, no directional liquidity
-- **No sub-minute tracking**: Uses minute-level budgets, not rolling consumption windows
-- **Simple price impact**: Volume multiplier rather than actual liquidity-to-volume translation
-- **No oracle anchoring**: Basic safety checks rather than GTWAP deviation monitoring
+The implementation prioritises tractability while capturing the dominant on-chain dynamics:
+- Uses minute-level evaluation rather than slot-by-slot oracle updates.
+- Approximates spread placement with fixed tick ranges instead of the full toxicity-aware model.
+- Does not yet model the full safety stack (e.g., directional volume decay, multi-slot cooldowns).
 
 ---
 

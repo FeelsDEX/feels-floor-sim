@@ -77,32 +77,32 @@ class ParticipantConfig:
     Used to calibrate realistic trading patterns in the simulation.
     """
     # Retail trader configuration - frequent small trades with high fee sensitivity
-    retail_count: int = 100                      # Number of retail trading agents
-    retail_base_frequency: float = 2.0           # Base trades per hour
-    retail_size_mean: float = 50.0               # Average trade size in FeelsSOL
-    retail_size_variance: float = 0.8            # Trade size variability factor
+    retail_count: int = 25                       # Number of retail trading agents
+    retail_base_frequency: float = 120.0         # Base trades per day (~5 per hour)
+    retail_size_mean: float = 18.0               # Average trade size in FeelsSOL
+    retail_size_variance: float = 0.5            # Trade size variability factor
     retail_fee_sensitivity: float = 2.0          # Sensitivity to fee changes (elasticity)
     retail_sentiment_sensitivity: float = 0.5    # Response to price momentum
 
     # Algorithmic trader configuration - higher frequency, larger sizes, less fee sensitive
-    algo_count: int = 10                         # Number of algorithmic agents
-    algo_base_frequency: float = 20.0            # Base trades per hour (high frequency)
-    algo_size_mean: float = 1000.0               # Average trade size in FeelsSOL
-    algo_size_variance: float = 1.2              # Trade size variability factor
+    algo_count: int = 3                          # Number of algorithmic agents
+    algo_base_frequency: float = 60.0            # Base trades per day (≈2.5 per hour)
+    algo_size_mean: float = 100.0                # Average trade size in FeelsSOL
+    algo_size_variance: float = 0.6              # Trade size variability factor
     algo_fee_sensitivity: float = 0.5            # Lower fee sensitivity than retail
     algo_sentiment_sensitivity: float = 0.2      # Less momentum-driven trading
 
     # Liquidity provider configuration - concentrated positions with fee harvesting
-    lp_count: int = 20                           # Number of LP agents
-    lp_position_size_mean: float = 5000.0        # Average position size in FeelsSOL
-    lp_position_size_variance: float = 1.0       # Position size variability
+    lp_count: int = 10                           # Number of LP agents
+    lp_position_size_mean: float = 500.0         # Average position size in FeelsSOL
+    lp_position_size_variance: float = 0.6       # Position size variability
     lp_fee_sensitivity: float = 3.0              # High sensitivity to fee earning potential
     lp_rebalance_frequency: float = 6.0          # Position rebalancing frequency (hours)
 
     # Arbitrageur configuration - price discrepancy exploitation
-    arb_count: int = 5                           # Number of arbitrage agents
-    arb_size_mean: float = 500.0                 # Average arbitrage trade size
-    arb_threshold_bps: float = 5.0               # Minimum profit threshold (basis points)
+    arb_count: int = 1                           # Number of arbitrage agents
+    arb_size_mean: float = 25.0                  # Average arbitrage trade size
+    arb_threshold_bps: float = 40.0              # Minimum profit threshold (basis points)
     arb_response_time: float = 2.0               # Minutes to respond to opportunities
 
 

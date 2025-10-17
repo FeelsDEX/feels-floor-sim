@@ -220,7 +220,7 @@ def complete_hour(self):
 - `process_participant_decisions()`: Models trading behavior for each participant type based on current market conditions.
 - `execute_swaps_against_curve()`: Consumes orders across tick-indexed liquidity buckets to compute execution price and slippage.
 - `distribute_fees()`: Routes ~85% of fees into Buffer, ~10% to protocol treasury, and ~5% to creators.
-- `apply_jit_liquidity()`: Adjusts effective minute volume using Buffer-driven JIT budgets when enabled.
+- `apply_jit_liquidity()`: Supplies contrarian virtual liquidity within budgeted caps when enabled.
 
 ## JIT (Just-In-Time) Liquidity Implementation
 
@@ -228,41 +228,39 @@ The simulation implements a budget-driven JIT system for early-stage market boot
 
 ### Current JIT Features
 
-**Budget-Driven Volume Amplification** (`JitManager` class):
+**Budget-Driven Virtual Placement** (`JitController` class):
 - **Per-minute caps**: 5% of Buffer balance maximum per minute
-- **Per-swap caps**: 3% of Buffer balance maximum per trade  
-- **Age-based decay**: Effectiveness decreases as markets mature
-- **Volume boost**: 30% default volume increase with budget constraints
+- **Per-swap caps**: 3% of Buffer balance maximum per trade
+- **Direction-aware sizing**: Liquidity is proportional to net order flow using a configurable multiplier
 
 **Safety Mechanisms**:
 - **Buffer health monitoring**: Auto-disables when Buffer < 30% of initial
 - **Duration limits**: Auto-disables after 24 hours by default
-- **Budget tracking**: Prevents rapid drainage through consumption limits
+- **TWAP anchoring**: Uses a short TWAP to centre placements around manipulation-resistant prices
 
 **Configuration Parameters**:
 ```python
 jit_enabled: bool = True                    # Enable/disable JIT system
 jit_base_cap_bps: int = 300                # Per-swap budget (3%)
 jit_per_slot_cap_bps: int = 500            # Per-minute budget (5%)
-jit_volume_boost_factor: float = 0.3       # Volume multiplier (30%)
+jit_volume_boost_factor: float = 0.3       # Virtual liquidity multiplier
 jit_max_duration_hours: int = 24           # Auto-disable duration
 jit_buffer_health_threshold: float = 0.3   # Health threshold (30%)
 ```
 
 **Integration Flow**:
-1. Check JIT eligibility (health, duration, budget)
-2. Calculate available boost based on Buffer balance
-3. Apply volume multiplier to trading activity
-4. Route boosted volume through standard fee split
-5. Update budget consumption tracking
+1. Check JIT eligibility (health, duration, budget, minimum flow)
+2. Derive a TWAP anchor and determine contrarian side
+3. Size a virtual position within the configured budget
+4. Absorb part of the net order and temporarily augment liquidity
+5. Record absorbed volume and update budget tracking
 
 ### JIT Limitations
 
-Current implementation provides **economic impact modeling**:
-- **Volume amplification only**: No actual liquidity placement
-- **Symmetric boosting**: No directional placement around price anchors
-- **Minute-level budgets**: No sub-minute consumption tracking
-- **Basic safety checks**: No sophisticated circuit breakers
+Current implementation provides a **tractable approximation** of the on-chain design:
+- **Minute-level evaluation** rather than slot-by-slot oracle sampling
+- **Fixed tick range** placement instead of full toxicity-aware spread management
+- **Simplified safety stack** (budget + TWAP) with headroom for additional circuit breakers
 
 **Continuing Event Processing**:
 - `update_floor_funding_flows()`: Consolidates Buffer growth with synthetic minting and updates deployment readiness.

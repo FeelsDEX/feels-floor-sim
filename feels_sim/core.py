@@ -42,13 +42,14 @@ class PriceHistory:
         window_minutes = max(1, window_seconds // 60)
         min_duration_minutes = max(1, min_duration_seconds // 60)
         cutoff = minute - window_minutes
-        recent = [tick for ts, tick in self.records if ts >= cutoff]
-        if len(recent) < 2:
+        recent_records = [(ts, tick) for ts, tick in self.records if ts >= cutoff]
+        if len(recent_records) < 2:
             return None
-        duration = max(recent) - min(recent)  # Simple time span check
-        if duration < min_duration_minutes:
+        times = [ts for ts, _ in recent_records]
+        if (times[-1] - times[0]) < min_duration_minutes:
             return None
-        return int(round(np.mean(recent)))
+        ticks = [tick for _, tick in recent_records]
+        return int(round(np.mean(ticks)))
 
     def get_volatility(self, minute: int, window: int = 120) -> float:
         if len(self.records) < 2:
@@ -63,72 +64,99 @@ class PriceHistory:
         return float(np.std(diffs) / max(1, np.mean(np.abs(ticks))))
 
 
+class JitPlacement:
+    """Lightweight structure describing virtual liquidity placement."""
+
+    __slots__ = ("liquidity", "lower_tick", "upper_tick", "side")
+
+    def __init__(self, liquidity: float, lower_tick: int, upper_tick: int, side: str) -> None:
+        self.liquidity = liquidity          # Amount of virtual liquidity (FeelsSOL equivalent)
+        self.lower_tick = lower_tick        # Lower tick bound for placement
+        self.upper_tick = upper_tick        # Upper tick bound for placement
+        self.side = side                    # 'ask' when selling into buys, 'bid' when buying sells
+
+
 class JitController:
-    """JIT liquidity controller for market bootstrapping."""
+    """JIT liquidity controller that approximates on-chain virtual liquidity placement."""
+
+    MIN_SWAP_VOLUME = 250.0        # Minimum per-minute volume to consider JIT (FeelsSOL)
+    MIN_BUFFER_RATIO = 0.05        # Require at least 5% of initial buffer health
+    MAX_RANGE_TICKS = 10           # Width of contrarian placement
 
     def __init__(self, config: SimulationConfig) -> None:
         self.enabled = config.jit_enabled
         self.base_cap_bps = config.jit_base_cap_bps
         self.per_slot_cap_bps = config.jit_per_slot_cap_bps
-        self.volume_boost_factor = config.jit_volume_boost_factor
+        self.volume_multiplier = config.jit_volume_boost_factor
         self.max_duration_minutes = int(config.jit_max_duration_hours * 60)
         self.buffer_health_threshold = config.jit_buffer_health_threshold
+        self.initial_buffer: Optional[float] = None
         self.current_slot: int = -1
         self.slot_used: float = 0.0
-        self.initial_buffer: Optional[float] = None
-        self.total_volume_boost: float = 0.0
-        self.active_minutes: int = 0
 
-    def apply(self, minute: int, base_volume: float, buffer_balance: float) -> Tuple[float, float, bool]:
-        """Apply JIT liquidity boost to base trading volume with safety checks.
-        
-        Returns: (adjusted_volume, boost_amount, was_active)
-        """
-        # Basic safety checks: JIT enabled, positive volume and buffer
-        if not self.enabled or base_volume <= 0 or buffer_balance <= 0:
-            return base_volume, 0.0, False
-        # Auto-disable after maximum duration (market maturity)
+    def evaluate(
+        self,
+        minute: int,
+        total_volume: float,
+        net_volume: float,
+        current_tick: int,
+        price_history: PriceHistory,
+        buffer_balance: float,
+    ) -> Optional[JitPlacement]:
+        """Return a JitPlacement describing virtual liquidity to deploy, if any."""
+        if not self.enabled:
+            return None
+
+        if buffer_balance <= 0 or abs(net_volume) < self.MIN_SWAP_VOLUME or total_volume <= 0:
+            return None
+
         if self.max_duration_minutes and minute >= self.max_duration_minutes:
-            return base_volume, 0.0, False
+            return None
 
-        # Reset per-minute budget tracking
+        # Establish baseline buffer health
+        if self.initial_buffer is None and buffer_balance > 0:
+            self.initial_buffer = buffer_balance
+
+        if self.initial_buffer and buffer_balance < self.initial_buffer * max(self.buffer_health_threshold, self.MIN_BUFFER_RATIO):
+            return None
+
+        # Budgeting - enforce per-minute and per-trade caps similar to on-chain model
         if self.current_slot != minute:
             self.current_slot = minute
             self.slot_used = 0.0
 
-        # Set initial buffer reference for health calculations
-        if self.initial_buffer is None and buffer_balance > 0:
-            self.initial_buffer = buffer_balance
-
-        # Disable if buffer health is too low (preserve capital)
-        if self.initial_buffer and buffer_balance < self.initial_buffer * self.buffer_health_threshold:
-            return base_volume, 0.0, False
-
-        # Calculate JIT budget caps based on buffer balance
-        per_trade = buffer_balance * (self.base_cap_bps / 10_000.0)  # Per-swap cap
-        per_slot = buffer_balance * (self.per_slot_cap_bps / 10_000.0)  # Per-minute cap
-        remaining = max(0.0, per_slot - self.slot_used)  # Remaining minute budget
-        allowance = max(0.0, min(per_trade, remaining))  # Final allowance
-
-        # No budget available
+        per_trade_cap = buffer_balance * (self.base_cap_bps / 10_000.0)
+        per_slot_cap = buffer_balance * (self.per_slot_cap_bps / 10_000.0)
+        remaining_budget = max(0.0, per_slot_cap - self.slot_used)
+        allowance = max(0.0, min(per_trade_cap, remaining_budget))
         if allowance <= 0:
-            return base_volume, 0.0, False
+            return None
 
-        # Calculate age-based decay factor (strongest when market is young)
-        age_factor = 1.0 - (minute / max(1, self.max_duration_minutes)) if self.max_duration_minutes else 1.0
-        age_factor = max(0.1, age_factor)  # Minimum 10% effectiveness
+        # Determine contrarian side (ask into net buys, bid into net sells)
+        side = "ask" if net_volume > 0 else "bid"
+        direction_multiplier = 1 if side == "ask" else -1
 
-        # Calculate potential volume boost with age decay
-        potential_extra = base_volume * self.volume_boost_factor * age_factor
-        jit_extra = min(potential_extra, allowance)  # Apply budget constraint
-        if jit_extra <= 0:
-            return base_volume, 0.0, False
+        # Anchor placement around a short TWAP to avoid reacting to manipulation
+        anchor_tick = price_history.get_twap(minute, 300, 60) or current_tick
 
-        # Update usage tracking and metrics
-        self.slot_used += jit_extra  # Track slot usage
-        self.total_volume_boost += jit_extra  # Cumulative boost
-        self.active_minutes += 1  # Active minute count
-        return base_volume + jit_extra, jit_extra, True
+        spread_ticks = max(1, self.MAX_RANGE_TICKS // 2)
+        if side == "ask":
+            lower_tick = anchor_tick + spread_ticks
+            upper_tick = lower_tick + self.MAX_RANGE_TICKS
+        else:
+            upper_tick = anchor_tick - spread_ticks
+            lower_tick = upper_tick - self.MAX_RANGE_TICKS
+            if lower_tick > upper_tick:
+                lower_tick, upper_tick = upper_tick, lower_tick
+
+        # Scale liquidity with observed order flow but clamp to available allowance
+        desired_liquidity = abs(net_volume) * self.volume_multiplier
+        liquidity = min(allowance, desired_liquidity)
+        if liquidity <= 0:
+            return None
+
+        self.slot_used += liquidity
+        return JitPlacement(liquidity=liquidity, lower_tick=lower_tick, upper_tick=upper_tick, side=side)
 
 
 class FeelsMarketModel(ap.Model):
@@ -224,24 +252,28 @@ class FeelsMarketModel(ap.Model):
         buy_volume, sell_volume, per_type = self._collect_trading_activity()
         total_volume = buy_volume + sell_volume
 
-        # Apply JIT liquidity boost
-        adjusted_volume, jit_boost, jit_active = self.jit_controller.apply(
-            self.minute, total_volume, self.floor_state.buffer_balance
-        )
+        net_volume = buy_volume - sell_volume
 
-        # Scale volumes if JIT is active
-        if total_volume > 0 and adjusted_volume > 0:
-            scale = adjusted_volume / total_volume
-            buy_volume *= scale
-            sell_volume *= scale
-            for key in list(per_type.keys()):
-                per_type[key] *= scale
-        total_volume = buy_volume + sell_volume
+        jit_placement = self.jit_controller.evaluate(
+            minute=self.minute,
+            total_volume=total_volume,
+            net_volume=net_volume,
+            current_tick=self.current_tick,
+            price_history=self.price_history,
+            buffer_balance=self.floor_state.buffer_balance,
+        )
 
         # Calculate fees and apply price impact
         fee_rate = self.p.get('base_fee_rate', 0.003)
         total_fees = total_volume * fee_rate
-        start_tick, end_tick = self._apply_trade_impact(buy_volume, sell_volume)
+        start_tick, end_tick, jit_absorbed = self._apply_trade_impact(buy_volume, sell_volume, jit_placement)
+        jit_active = jit_placement is not None and jit_absorbed > 0.0
+        jit_liquidity = jit_placement.liquidity if jit_placement else 0.0
+
+        distributed_lp = 0.0
+        if self.participants and total_fees > 0:
+            distributed_lp = self.participants.accrue_lp_fees(total_fees, start_tick, end_tick)
+            self.floor_state.lp_fee_cumulative += distributed_lp
 
         # Route fees to stakeholders
         self._route_fees(total_fees, start_tick, end_tick)
@@ -270,8 +302,12 @@ class FeelsMarketModel(ap.Model):
             floor_state=copy.deepcopy(self.floor_state),
             volume_feelssol=total_volume,
             fees_collected=total_fees,
-            jit_volume_boost=jit_boost,
+            jit_virtual_liquidity=jit_liquidity,
+            jit_absorbed_volume=jit_absorbed,
             jit_active=jit_active,
+            jit_side=jit_placement.side if jit_placement else None,
+            jit_range=(jit_placement.lower_tick, jit_placement.upper_tick) if jit_placement else None,
+            lp_fees_distributed=distributed_lp,
             events={"pomm_deployed": pomm_deployed},
             participant_volumes=per_type,
             price_path=(start_tick, end_tick),
@@ -336,17 +372,43 @@ class FeelsMarketModel(ap.Model):
 
         return buy_volume, sell_volume, per_type
 
-    def _apply_trade_impact(self, buy_volume: float, sell_volume: float) -> Tuple[int, int]:
+    def _apply_trade_impact(
+        self,
+        buy_volume: float,
+        sell_volume: float,
+        jit_placement: Optional[JitPlacement],
+    ) -> Tuple[int, int, float]:
         """Apply price impact from trading volume."""
         start_tick = self.current_tick
         total_volume = buy_volume + sell_volume
         net_volume = buy_volume - sell_volume
+        jit_absorbed = 0.0
         
-        if total_volume <= 0 or abs(net_volume) < 1e-9:
-            return start_tick, start_tick
+        if total_volume <= 0:
+            return start_tick, start_tick, jit_absorbed
+
+        liquidity = self._active_liquidity(start_tick)
+
+        if jit_placement:
+            if net_volume > 0 and jit_placement.side == "ask":
+                jit_absorbed = min(net_volume, jit_placement.liquidity)
+                net_volume -= jit_absorbed
+            elif net_volume < 0 and jit_placement.side == "bid":
+                jit_absorbed = min(-net_volume, jit_placement.liquidity)
+                net_volume += jit_absorbed
+
+            # Virtual liquidity complements existing liquidity near the placement range
+            within_range = (
+                jit_placement.lower_tick
+                <= start_tick
+                <= jit_placement.upper_tick
+            )
+            liquidity += jit_placement.liquidity if within_range else jit_placement.liquidity * 0.5
+
+        if abs(net_volume) < 1e-9 or liquidity <= 0:
+            return start_tick, start_tick, jit_absorbed
 
         # Calculate available liquidity
-        liquidity = self._active_liquidity(start_tick)
         net_fraction = max(-0.95, min(0.95, net_volume / liquidity))
         price_ratio = max(1e-6, 1.0 + net_fraction)
         delta_tick = int(round(math.log(price_ratio) / math.log(1.0001)))
@@ -358,7 +420,7 @@ class FeelsMarketModel(ap.Model):
         if self.participants:
             self.participants.note_market_tick(end_tick)
 
-        return start_tick, end_tick
+        return start_tick, end_tick, jit_absorbed
 
     def _active_liquidity(self, tick: int) -> float:
         """Calculate active liquidity at given tick."""
@@ -381,19 +443,12 @@ class FeelsMarketModel(ap.Model):
         creator_amount = total_fees * (fee_split['creator_fee_rate_bps'] / 10_000.0)
         
         # Buffer gets the remainder after protocol and creator fees are deducted
-        buffer_amount = max(0.0, total_fees - protocol_amount - creator_amount)
-
-        # Distribute LP fees (they earn through position accrual, not direct percentage)
-        distributed_lp = 0.0
-        if self.participants and buffer_amount > 0:
-            # LPs can earn fees from their active liquidity during swaps
-            # This is separate from the main fee split - they accrue fees based on their liquidity
-            distributed_lp = self.participants.accrue_lp_fees(buffer_amount * 0.1, start_tick, end_tick)  # Small portion for LP accrual
-            self.floor_state.lp_fee_cumulative += distributed_lp
+        buffer_allocation = max(0.0, total_fees - protocol_amount - creator_amount)
+        buffer_amount = buffer_allocation
 
         # Update balances
         self.floor_state.buffer_balance += buffer_amount
-        self.floor_state.buffer_routed_cumulative += buffer_amount
+        self.floor_state.buffer_routed_cumulative += buffer_allocation
         self.floor_state.treasury_balance += protocol_amount
         self.floor_state.creator_balance += creator_amount
         
@@ -404,10 +459,13 @@ class FeelsMarketModel(ap.Model):
     def _accrue_minting(self) -> None:
         """Accrue synthetic FeelsSOL minting from JitoSOL yield."""
         dt = 1.0 / (365.25 * 24 * 60)
-        total_supply = self.p.get('total_supply', 1000000.0)
         yield_apy = self.p.get('jitosol_yield_apy', 0.07)
-        mint_growth = total_supply * yield_apy * dt
-        
+        reserve_base = max(
+            0.0,
+            self.floor_state.deployed_feelssol + self.floor_state.buffer_balance,
+        )
+        mint_growth = reserve_base * yield_apy * dt
+
         self.floor_state.mintable_feelssol += mint_growth
         self.floor_state.mint_cumulative += mint_growth
 
@@ -487,7 +545,8 @@ class FeelsMarketModel(ap.Model):
             "buffer_routed_cumulative": self.floor_state.buffer_routed_cumulative,
             "mint_cumulative": self.floor_state.mint_cumulative,
             "deployed_feelssol": self.floor_state.deployed_feelssol,
-            "jit_volume_boost": float(np.sum([s.jit_volume_boost for s in hour_snapshots])),
+            "jit_virtual_liquidity": float(np.sum([s.jit_virtual_liquidity for s in hour_snapshots])),
+            "jit_absorbed_volume": float(np.sum([s.jit_absorbed_volume for s in hour_snapshots])),
             "jit_active_minutes": int(sum(1 for s in hour_snapshots if s.jit_active)),
         }
         

@@ -1,0 +1,7 @@
+[nbstripout]
+# Keep only outputs that are explicitly tagged
+keep_output_tagged = true
+# Clear execution counts (they change every run)
+keep_count = false
+# Keep cell metadata that might contain tags
+extra_keys = tags,collapsed,scrolled

@@ -50,7 +50,7 @@ class SimulationConfig:
     jit_per_slot_cap_bps: float = 500.0          # Per-minute budget: 5% of Buffer balance
     jit_max_multiplier: float = 10.0             # Peak effective liquidity multiplier at current price
     jit_concentration_width: int = 10            # Tick range for concentrated JIT liquidity
-    jit_volume_boost_factor: float = 0.3         # Volume increase factor when JIT active
+    jit_volume_boost_factor: float = 0.3         # Multiplier for JIT virtual liquidity sizing
     jit_max_duration_hours: float = 24.0         # Auto-disable JIT after 24 hours (market maturity)
     jit_buffer_health_threshold: float = 0.30    # Disable JIT when Buffer < 30% of initial
 
@@ -65,7 +65,7 @@ class SimulationConfig:
     circulating_supply: float = 1_000_000_000  # Initially all tokens circulating
 
     # Initial floor state - starting conditions for POMM system
-    initial_deployed_feelssol: float = 1_000.0  # Initial floor liquidity deployed
+    initial_deployed_feelssol: float = 5_000_000.0  # Initial floor liquidity deployed (sets ~$0.50 starting floor)
     initial_buffer_balance: float = 0.0          # Buffer starts empty, grows from fees
 
     # Participant behavior - controls synthetic trading activity

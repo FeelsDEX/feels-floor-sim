@@ -28,8 +28,13 @@ def snapshots_to_dataframe(snapshots: List[SimulationSnapshot]) -> pl.DataFrame:
         # Trading activity metrics
         "volume_feelssol": [s.volume_feelssol for s in snapshots],
         "fees_collected": [s.fees_collected for s in snapshots],
-        "jit_volume_boost": [s.jit_volume_boost for s in snapshots],
+        "jit_virtual_liquidity": [s.jit_virtual_liquidity for s in snapshots],
+        "jit_absorbed_volume": [s.jit_absorbed_volume for s in snapshots],
+        "lp_fees_distributed": [s.lp_fees_distributed for s in snapshots],
         "jit_active": [s.jit_active for s in snapshots],
+        "jit_side": [s.jit_side or "" for s in snapshots],
+        "jit_lower_tick": [s.jit_range[0] if s.jit_range else None for s in snapshots],
+        "jit_upper_tick": [s.jit_range[1] if s.jit_range else None for s in snapshots],
         "pomm_deployed": [s.events.get("pomm_deployed", False) for s in snapshots],
         
         # Floor funding state tracking
@@ -162,8 +167,10 @@ def calculate_key_metrics(snapshots: List[SimulationSnapshot]) -> Dict[str, Any]
         # Floor to market ratio
         (pl.col("floor_price_usd") / pl.col("sol_price_usd").filter(pl.col("sol_price_usd") > 0)).mean().alias("avg_floor_to_market_ratio"),
         
-        # JIT metrics
-        pl.col("jit_volume_boost").sum().alias("jit_total_volume_boost"),
+        # JIT metrics and LP accrual
+        pl.col("jit_virtual_liquidity").sum().alias("jit_virtual_liquidity_total"),
+        pl.col("jit_absorbed_volume").sum().alias("jit_absorbed_volume_total"),
+        pl.col("lp_fees_distributed").sum().alias("lp_fees_total"),
         pl.col("jit_active").sum().alias("jit_active_minutes"),
         
         # Buffer utilization
@@ -236,7 +243,9 @@ def calculate_time_aggregates(snapshots: List[SimulationSnapshot],
         pl.col("volume_feelssol").sum().alias("volume_feelssol"),
         pl.col("fees_collected").sum().alias("fees_collected"),
         pl.col("pomm_deployed").sum().alias("pomm_deployments"),
-        pl.col("jit_volume_boost").sum().alias("jit_volume_boost"),
+        pl.col("jit_virtual_liquidity").sum().alias("jit_virtual_liquidity_sum"),
+        pl.col("jit_absorbed_volume").sum().alias("jit_absorbed_volume_sum"),
+        pl.col("lp_fees_distributed").sum().alias("lp_fees_distributed"),
         pl.col("jit_active").sum().alias("jit_active_minutes"),
         
         # Average point-in-time metrics
@@ -316,42 +325,42 @@ def calculate_pomm_efficiency_metrics(snapshots: List[SimulationSnapshot]) -> Di
     """Calculate POMM deployment efficiency metrics using polars."""
     if not snapshots:
         return {}
-    
-    df = snapshots_to_dataframe(snapshots)
-    
-    if df.is_empty():
-        return {"pomm_count": 0, "avg_deployment_size": 0, "deployment_frequency": 0}
-    
-    # Find POMM deployment events
-    deployment_df = df.filter(pl.col("pomm_deployed") == True)
-    
-    if deployment_df.is_empty():
-        return {"pomm_count": 0, "avg_deployment_size": 0, "deployment_frequency": 0}
-    
-    # Calculate deployment metrics
-    pomm_count = len(deployment_df)
-    
-    # Estimate deployment sizes by looking at buffer balance changes
-    deployment_sizes = []
-    for i in range(len(deployment_df)):
-        if i > 0:
-            current_buffer = deployment_df.item(i, "buffer_balance")
-            prev_buffer = deployment_df.item(i-1, "buffer_balance")
-            if prev_buffer > current_buffer:
-                deployment_sizes.append(prev_buffer - current_buffer)
-    
-    avg_deployment_size = sum(deployment_sizes) / len(deployment_sizes) if deployment_sizes else 0
-    
-    # Calculate deployment frequency (deployments per hour)
-    hours_elapsed = len(df) / 60
-    deployment_frequency = pomm_count / max(hours_elapsed, 0.1)
-    
+
+    pomm_sizes: List[float] = []
+    prev_deployed = snapshots[0].floor_state.deployed_feelssol
+    prev_buffer = snapshots[0].floor_state.buffer_balance
+
+    for snap in snapshots[1:]:
+        if snap.events.get("pomm_deployed"):
+            deployed_delta = max(0.0, snap.floor_state.deployed_feelssol - prev_deployed)
+            buffer_delta = max(0.0, prev_buffer - snap.floor_state.buffer_balance)
+            # Use deployed delta as ground truth; fall back to buffer delta if needed
+            deployment_amount = deployed_delta if deployed_delta > 0 else buffer_delta
+            pomm_sizes.append(deployment_amount)
+        prev_deployed = snap.floor_state.deployed_feelssol
+        prev_buffer = snap.floor_state.buffer_balance
+
+    pomm_count = len(pomm_sizes)
+    if pomm_count == 0:
+        return {"pomm_count": 0, "avg_deployment_size": 0, "deployment_frequency": 0, "total_deployed_amount": 0}
+
+    total_deployed = float(sum(pomm_sizes))
+    avg_deployment_size = total_deployed / pomm_count if pomm_count else 0.0
+    sorted_sizes = sorted(pomm_sizes)
+    median_deployment_size = sorted_sizes[pomm_count // 2] if pomm_count % 2 == 1 else (
+        (sorted_sizes[pomm_count // 2 - 1] + sorted_sizes[pomm_count // 2]) / 2 if pomm_count >= 2 else sorted_sizes[0]
+    )
+
+    minutes_elapsed = snapshots[-1].timestamp - snapshots[0].timestamp
+    hours_elapsed = max(minutes_elapsed, 0) / 60.0 if minutes_elapsed > 0 else len(snapshots) / 60.0
+    deployment_frequency = pomm_count / max(hours_elapsed, 1e-6)
+
     return {
         "pomm_count": pomm_count,
         "avg_deployment_size": avg_deployment_size,
-        "median_deployment_size": sorted(deployment_sizes)[len(deployment_sizes)//2] if deployment_sizes else 0,
+        "median_deployment_size": median_deployment_size,
         "deployment_frequency": deployment_frequency,
-        "total_deployed_amount": sum(deployment_sizes),
+        "total_deployed_amount": total_deployed,
     }
 
 

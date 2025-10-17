@@ -97,7 +97,7 @@ These parameters control when and how Protocol-Owned Market Making positions are
 | `jit_per_slot_cap_bps` | Per-minute budget as % of Buffer | 300-700 bps |
 | `jit_max_multiplier` | Peak virtual liquidity multiplier | 5-10× |
 | `jit_concentration_width` | Tick width around the anchor for JIT | 5-15 ticks |
-| `jit_volume_boost_factor` | Fractional volume lift when JIT active | 0.1-0.5 |
+| `jit_volume_boost_factor` | Multiplier for JIT virtual liquidity sizing | 0.1-0.5 |
 | `jit_max_duration_hours` | Maximum bootstrap duration for JIT | 6-48 hours |
 | `jit_buffer_health_threshold` | Disable JIT when Buffer < threshold | 20-40% of initial |
 

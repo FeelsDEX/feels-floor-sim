@@ -119,6 +119,7 @@
           buildInputs = with pkgs; [
             pythonEnv
             nodejs  # for Jupyter extensions
+            nbstripout  # For cleaning notebook outputs
           ];
           
           shellHook = ''
