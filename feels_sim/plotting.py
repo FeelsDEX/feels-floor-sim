@@ -391,19 +391,27 @@ def create_summary_plots(results: SimulationResults, save_path: str = None,
     
     # Plot 1: Price evolution with confidence bands
     base_floor = df['floor_price_usd'].iloc[0]
+    base_sol = df['sol_price_usd'].iloc[0]
     df['floor_change_bps'] = (df['floor_price_usd'] / base_floor - 1.0) * 10_000
+    df['sol_change_pct'] = (df['sol_price_usd'] / base_sol - 1.0) * 100
 
     price_ax = axes[0, 0]
     sol_line = price_ax.plot(
         df['hours'],
-        df['sol_price_usd'],
-        label='SOL Price',
+        df['sol_change_pct'],
+        label='SOL Δ (%)',
         color=style.primary_color,
         linewidth=style.linewidth,
         alpha=style.alpha,
     )
     price_ax.set_xlabel('Hours')
-    price_ax.set_ylabel('SOL Price (USD)')
+    price_ax.set_ylabel('SOL Change (%)')
+    sol_min, sol_max = df['sol_change_pct'].min(), df['sol_change_pct'].max()
+    if sol_max == sol_min:
+        sol_min -= 0.01
+        sol_max += 0.01
+    sol_pad = max(0.02, 0.1 * abs(sol_max - sol_min))
+    price_ax.set_ylim(sol_min - sol_pad, sol_max + sol_pad)
 
     floor_ax = price_ax.twinx()
     floor_line = floor_ax.plot(
@@ -416,6 +424,12 @@ def create_summary_plots(results: SimulationResults, save_path: str = None,
         alpha=style.alpha,
     )
     floor_ax.set_ylabel('Floor Change (bps)')
+    floor_min, floor_max = df['floor_change_bps'].min(), df['floor_change_bps'].max()
+    if floor_max == floor_min:
+        floor_min -= 1.0
+        floor_max += 1.0
+    floor_pad = max(1.0, 0.1 * abs(floor_max - floor_min))
+    floor_ax.set_ylim(floor_min - floor_pad, floor_max + floor_pad)
 
     price_ax.set_title('Price & Floor Evolution')
     lines = sol_line + floor_line
@@ -905,10 +919,10 @@ def generate_summary_report(results: SimulationResults, file_path: str = None) -
 
 # Convenience functions for common plot types
 def plot_price_evolution(df: pd.DataFrame, style: Optional[PlotStyle] = None) -> Tuple[Any, Any]:
-    """Create a price evolution plot with SOL and floor prices.
+    """Create a price evolution plot focusing on FeelsSOL floor price dynamics.
     
     Args:
-        df: DataFrame with 'hour', 'sol_price_usd', 'floor_price_usd' columns
+        df: DataFrame with 'hour', 'floor_price_usd', 'sol_price_usd' columns
         style: Custom style configuration
         
     Returns:
@@ -920,16 +934,30 @@ def plot_price_evolution(df: pd.DataFrame, style: Optional[PlotStyle] = None) ->
     fig, ax = create_figure_with_style(1, 1, style.figure_size_single, style)
     if fig is None:
         return None, None
-        
-    create_line_plot(df, 'hour', 'sol_price_usd', ax=ax, 
-                    label='SOL Price', color=style.primary_color, style=style)
-    create_line_plot(df, 'hour', 'floor_price_usd', ax=ax,
-                    label='Floor Price', color=style.secondary_color, style=style)
     
+    # Calculate floor-to-market ratio as percentage
+    df = df.copy()
+    df['floor_to_market_ratio_pct'] = (df['floor_price_usd'] / df['sol_price_usd']) * 100
+    
+    # Primary plot: Floor Price in USD
+    create_line_plot(df, 'hour', 'floor_price_usd', ax=ax, 
+                    label='FeelsSOL Floor Price (USD)', color=style.primary_color, style=style)
+    
+    # Secondary y-axis for floor/market ratio
+    ax2 = ax.twinx()
+    create_line_plot(df, 'hour', 'floor_to_market_ratio_pct', ax=ax2,
+                    label='Floor/Market Ratio (%)', color=style.secondary_color, style=style)
+    
+    # Styling
     ax.set_xlabel('Hours')
-    ax.set_ylabel('Price (USD)')
-    ax.set_title('Price Evolution')
-    ax.legend()
+    ax.set_ylabel('FeelsSOL Floor Price (USD)', color=style.primary_color)
+    ax2.set_ylabel('Floor/Market Ratio (%)', color=style.secondary_color)
+    ax.set_title('FeelsSOL Floor Price Evolution')
+    
+    # Combine legends
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
     
     return fig, ax
 

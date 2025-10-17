@@ -141,17 +141,17 @@ def calculate_key_metrics(snapshots: List[SimulationSnapshot]) -> Dict[str, Any]
     final_floor = df.select("floor_price_usd").item(-1, 0)
     
     if initial_floor > 0 and len(snapshots) > 1:
-        minutes_elapsed = len(snapshots)
-        years_elapsed = minutes_elapsed / (365.25 * 24 * 60)
-        
-        if years_elapsed > 0:
-            growth_ratio = final_floor / initial_floor
-            if years_elapsed < 0.1 or growth_ratio > 1000:
-                metrics["floor_growth_rate_annual"] = growth_ratio - 1.0
-            else:
-                metrics["floor_growth_rate_annual"] = min(growth_ratio ** (1 / years_elapsed) - 1, 10.0)
-        else:
+        minutes_elapsed = snapshots[-1].timestamp - snapshots[0].timestamp
+        if minutes_elapsed <= 0:
             metrics["floor_growth_rate_annual"] = 0.0
+        else:
+            years_elapsed = minutes_elapsed / (365.25 * 24 * 60)
+            growth_ratio = final_floor / initial_floor if initial_floor > 0 else 1.0
+            if growth_ratio <= 0:
+                metrics["floor_growth_rate_annual"] = 0.0
+            else:
+                annual_rate = growth_ratio ** (1 / years_elapsed) - 1.0
+                metrics["floor_growth_rate_annual"] = min(annual_rate, 10.0)
     else:
         metrics["floor_growth_rate_annual"] = 0.0
     
