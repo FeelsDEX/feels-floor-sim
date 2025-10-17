@@ -21,7 +21,7 @@ The protocol's architecture centers on three integrated systems. First, a dual-c
 
 ## Core Architecture
 
-### The Hub-and-Spoke Foundation
+### The Hub-and-Spoke Base
 
 At its core, Feels operates on a strict hub-and-spoke model. FeelsSOL serves as the universal intermediary for all trades. Traditional AMMs create isolated liquidity pools between arbitrary token pairs. Every market in Feels is structured as a TokenX/FeelsSOL pair. This architectural constraint means that trading from TokenA to TokenB requires at most two hops: TokenA → FeelsSOL → TokenB.
 
@@ -35,7 +35,7 @@ The protocol maintains solvency through a carefully designed two-layer architect
 
 This structure provides both isolation and systemic stability. If a particular token market experiences problems, other markets remain unaffected. Each pool manages its own FeelsSOL inventory. The protocol-level JitoSOL reserves ensure that FeelsSOL can always be redeemed for JitoSOL at the current market rate. As JitoSOL appreciates relative to SOL through staking yield, the protocol can mint additional FeelsSOL to maintain the SOL price target while preserving full backing.
 
-The Buffer (τ - tau) serves as a thermodynamic reservoir within each market. It accumulates fees and manages the flow of value between different system components. This buffer concept is central to how Feels maintains value conservation. No value is created or destroyed within the system. Value is only transferred between participants and pools according to well-defined rules.
+The Buffer (τ - tau) serves as a funding reservoir within each market. It accumulates fees and manages the flow of value between different system components. This buffer concept is central to how Feels maintains value conservation. No value is created or destroyed within the system, only transferred between participants and pools.
 
 ---
 
@@ -109,11 +109,11 @@ The Just-In-Time liquidity system addresses the cold start problem that new toke
 
 When active, JIT provides *virtual concentrated liquidity* that enhances existing LP liquidity. It strategically places *contrarian* liquidity (opposite to the taker's direction) around a time-weighted average price (TWAP) anchor. This system applies a virtual concentration effect, such as a 10x multiplier, to a base liquidity amount, making JIT highly capital efficient. This ensures that small trades experience minimal slippage even in newly launched markets. The value of consumed JIT liquidity is routed back to the Buffer, effectively making JIT "earn" for the protocol.
 
-**JIT is disabled by default** in the current implementation. Markets initialize with `jit_enabled = false` and zero multipliers. This means this system only becomes active when explicitly enabled for specific markets. This represents a conservative approach to rolling out JIT functionality.
+The JIT system can be configured per market to provide appropriate liquidity support during the early phases of market development. When enabled, it operates with carefully calibrated parameters to ensure effective market bootstrapping while maintaining protocol safety.
 
 ### Activation Conditions and Safety Mechanisms
 
-When enabled, JIT operates under strict conditions designed to prevent abuse while maximizing utility. The system activates primarily during the BondingCurve and early SteadyState phases. During these phases, organic liquidity provider activity may be insufficient to support smooth trading. As markets mature and attract sufficient LP liquidity, JIT can be disabled to reduce protocol exposure.
+JIT operates under strict conditions designed to prevent abuse while maximizing utility. The system activates primarily during the BondingCurve and early SteadyState phases. During these phases, organic liquidity provider activity may be insufficient to support smooth trading. As markets mature and attract sufficient LP liquidity, JIT can be disabled to reduce protocol exposure.
 
 Rate limiting mechanisms prevent excessive JIT usage that could destabilize markets or create arbitrage opportunities. Per-slot caps limit how much JIT liquidity can be consumed in any single Solana slot. Rolling consumption windows track usage across multiple slots to prevent sustained abuse.
 
