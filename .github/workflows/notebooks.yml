@@ -1,0 +1,48 @@
+name: Execute Notebooks
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'notebooks/**' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'notebooks/**' ]
+  workflow_dispatch:
+
+jobs:
+  execute-notebooks:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@main
+    
+    - name: Setup Nix cache
+      uses: DeterminateSystems/magic-nix-cache-action@main
+    
+    - name: Execute notebooks
+      run: |
+        nix develop --command bash -c "
+          # Install notebook execution dependencies
+          pip install nbconvert jupyter
+          
+          # Execute each notebook and save outputs
+          jupyter nbconvert --to notebook --execute notebooks/01_baseline.ipynb --output 01_baseline_executed.ipynb
+          jupyter nbconvert --to notebook --execute notebooks/02_parameter_sweep.ipynb --output 02_parameter_sweep_executed.ipynb
+          jupyter nbconvert --to notebook --execute notebooks/03_calibration.ipynb --output 03_calibration_executed.ipynb
+          
+          # Convert to HTML for viewing
+          jupyter nbconvert --to html notebooks/01_baseline_executed.ipynb
+          jupyter nbconvert --to html notebooks/02_parameter_sweep_executed.ipynb
+          jupyter nbconvert --to html notebooks/03_calibration_executed.ipynb
+        "
+    
+    - name: Upload executed notebooks
+      uses: actions/upload-artifact@v3
+      with:
+        name: executed-notebooks
+        path: |
+          notebooks/*_executed.ipynb
+          notebooks/*.html

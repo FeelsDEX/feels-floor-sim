@@ -1,5 +1,8 @@
 # Feels Floor Price Simulation
 
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/hxrts/feels-floor-sim/HEAD?labpath=notebooks%2F01_baseline.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hxrts/feels-floor-sim/blob/main/notebooks/01_baseline.ipynb)
+
 A simulation framework for analyzing Feels protocol floor price dynamics.
 
 ## Overview
@@ -58,8 +61,13 @@ python -m feels_sim.cli sweep --sweep-type fee_range --fee-range 20 30 40 50
 
 Results are saved in `experiments/runs/` with timestamped files for analysis.
 
-### Jupyter Notebook Usage
+### Interactive Notebooks
 
+**Run Online (No Installation Required):**
+- **Binder**: Click the Binder badge above for a fully interactive environment
+- **Google Colab**: Click the Colab badge for GPU-accelerated execution
+
+**Local Development:**
 Jupyter is the primary way to configure and run simulations. The Nix environment automatically registers the `feels-floor-sim` kernel. In the notebook:
 
 ```python
