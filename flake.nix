@@ -99,6 +99,7 @@
         pythonEnv = pkgs.python3.withPackages (ps: with ps; [
           jupyter
           polars
+          pyarrow  # Required for polars .to_pandas() conversion
           matplotlib
           numpy
           seaborn

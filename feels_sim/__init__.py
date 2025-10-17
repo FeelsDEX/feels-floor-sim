@@ -62,6 +62,18 @@ from .plotting import (
     create_detailed_analysis_plots,
     create_parameter_sweep_plots,
     generate_summary_report,
+    setup_plot_style,
+    apply_professional_styling,
+    create_figure_with_style,
+    save_plot,
+    create_line_plot,
+    create_scatter_plot,
+    create_box_plot,
+    create_heatmap,
+    plot_price_evolution,
+    plot_volume_analysis,
+    PlotStyle,
+    DEFAULT_STYLE,
 )
 
 # Import other utilities
@@ -112,6 +124,18 @@ __all__ = [
     "create_detailed_analysis_plots",
     "create_parameter_sweep_plots",
     "generate_summary_report",
+    "setup_plot_style",
+    "apply_professional_styling",
+    "create_figure_with_style",
+    "save_plot",
+    "create_line_plot",
+    "create_scatter_plot",
+    "create_box_plot",
+    "create_heatmap",
+    "plot_price_evolution",
+    "plot_volume_analysis",
+    "PlotStyle",
+    "DEFAULT_STYLE",
     
     # Utilities
     "MarketEnvironment",

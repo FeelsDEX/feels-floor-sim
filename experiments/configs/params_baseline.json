@@ -17,14 +17,14 @@
     "version": "1.0.0",
     "description": "Baseline configuration calibrated to typical DeFi market patterns",
     "validation_results": {
-      "total_volume_48h": 22284757.21765506,
-      "avg_hourly_volume": 464265.7753678137,
-      "final_floor_price": 0.045013026972982165,
-      "final_treasury_balance": 668.5427165296832,
-      "final_buffer_balance": 0.0,
+      "total_volume_48h": 2970840.169486584,
+      "avg_hourly_volume": 61892.503530970505,
+      "final_floor_price": 0.038850128157340735,
+      "final_treasury_balance": 89.12520508459772,
+      "final_buffer_balance": 0.2986457416283926,
       "snapshots_count": 2880
     },
-    "fee_elasticity": 0.001471760983316149,
+    "fee_elasticity": -0.027369751444274906,
     "validation_passed": false
   }
 }

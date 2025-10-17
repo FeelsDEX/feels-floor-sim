@@ -509,8 +509,10 @@ def create_detailed_analysis_plots(results: SimulationResults, save_path: str = 
     
     fig.suptitle("Detailed Statistical Analysis - Hourly Aggregates", fontsize=16, y=0.98)
     
-    # Convert to DataFrame for seaborn
+    # Convert to DataFrame for seaborn and add hour column
     hourly_df = pd.DataFrame(hourly_data)
+    # Add hour column for plotting (sequential hour numbers)
+    hourly_df['hour'] = range(len(hourly_df))
     
     # Plot 1: Volume distribution and trend
     ax1 = fig.add_subplot(gs[0, 0])
@@ -883,7 +885,7 @@ def plot_price_evolution(df: pd.DataFrame, style: Optional[PlotStyle] = None) ->
     """Create a price evolution plot with SOL and floor prices.
     
     Args:
-        df: DataFrame with 'hours', 'sol_price_usd', 'floor_price_usd' columns
+        df: DataFrame with 'hour', 'sol_price_usd', 'floor_price_usd' columns
         style: Custom style configuration
         
     Returns:
@@ -896,9 +898,9 @@ def plot_price_evolution(df: pd.DataFrame, style: Optional[PlotStyle] = None) ->
     if fig is None:
         return None, None
         
-    create_line_plot(df, 'hours', 'sol_price_usd', ax=ax, 
+    create_line_plot(df, 'hour', 'sol_price_usd', ax=ax, 
                     label='SOL Price', color=style.primary_color, style=style)
-    create_line_plot(df, 'hours', 'floor_price_usd', ax=ax,
+    create_line_plot(df, 'hour', 'floor_price_usd', ax=ax,
                     label='Floor Price', color=style.secondary_color, style=style)
     
     ax.set_xlabel('Hours')
@@ -913,7 +915,7 @@ def plot_volume_analysis(df: pd.DataFrame, style: Optional[PlotStyle] = None) ->
     """Create a volume analysis plot with trend line.
     
     Args:
-        df: DataFrame with 'hours', 'volume_feelssol' columns
+        df: DataFrame with 'hour', 'volume_feelssol' columns
         style: Custom style configuration
         
     Returns:
@@ -926,12 +928,12 @@ def plot_volume_analysis(df: pd.DataFrame, style: Optional[PlotStyle] = None) ->
     if fig is None:
         return None, None
         
-    create_scatter_plot(df, 'hours', 'volume_feelssol', ax=ax,
+    create_scatter_plot(df, 'hour', 'volume_feelssol', ax=ax,
                        color=style.accent_color, style=style)
     
     try:
         import seaborn as sns
-        sns.regplot(data=df, x='hours', y='volume_feelssol', 
+        sns.regplot(data=df, x='hour', y='volume_feelssol', 
                    scatter=False, color=style.accent_color, ax=ax)
     except ImportError:
         pass
