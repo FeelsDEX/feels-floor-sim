@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Post-build script for Binder
+# This runs after the environment is created
+
+# Install the feels_sim package in development mode
+pip install -e .
+
+# Create any necessary directories
+mkdir -p experiments/runs
+mkdir -p experiments/configs
+
+echo "Binder environment setup complete!"

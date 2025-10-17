@@ -1,7 +1,7 @@
 # Feels Floor Price Simulation
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/hxrts/feels-floor-sim/HEAD?labpath=notebooks%2F01_baseline.ipynb)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hxrts/feels-floor-sim/blob/main/notebooks/01_baseline.ipynb)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/FeelsDEX/feels-floor-sim/HEAD?labpath=notebooks%2F01_baseline.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/FeelsDEX/feels-floor-sim/blob/main/notebooks/01_baseline.ipynb)
 
 A simulation framework for analyzing Feels protocol floor price dynamics.
 
