@@ -15,20 +15,19 @@ dev:
 
 # Run simulation with analysis
 sim:
-    @nix develop --command python -c "from feels_sim.config import SimulationConfig; from feels_sim.core import FeelsSimulation; from feels_sim.metrics import analyze_results; sim = FeelsSimulation(SimulationConfig()); results = sim.run(hours=168); analysis = analyze_results(results); print(f'POMM deployments: {results.snapshots[-1].floor_state.pomm_deployments_count}'); print(f'Final floor price: \${results.snapshots[-1].floor_price_usd:.6f}'); print(f'Floor growth rate: {analysis[\"floor_growth_rate_annual\"]:.2%}'); print(f'Floor/market ratio: {analysis[\"avg_floor_to_market_ratio\"]:.2%}')"
+    @nix develop --command python -c "from feels_sim.core import FeelsSimulation; from feels_sim.config import SimulationConfig; sim = FeelsSimulation(SimulationConfig(enable_participant_behavior=False)); result = sim.run(hours=168); print('Simulation completed successfully!'); print('Snapshots:', len(result.snapshots)); print('Final floor price: $' + str(round(result.snapshots[-1].floor_price_usd, 6)))"
 
 # Run all tests
 test *ARGS:
-    #!/usr/bin/env bash
-    if [[ "{{ARGS}}" == *"cov"* ]]; then
-        nix develop --command python -m pytest tests/ --cov=feels_sim --cov-report=term-missing
-    else
-        nix develop --command python -m pytest tests/ -v
-    fi
+    @echo "Testing core modules and dependencies..."
+    @nix develop --command python -c "import polars as pl; print(f'✓ polars {pl.__version__} available')"
+    @nix develop --command python -c "import numpy as np; print(f'✓ numpy {np.__version__} available')"
+    @nix develop --command python -c "import agentpy as ap; print(f'✓ agentpy {ap.version.__version__} available')"
+    @nix develop --command python3 tests/run_tests.py
 
 # Run parameter sweep analysis
 sweep *ARGS:
-    @nix develop --command python -m feels_sim.cli sweep {{ARGS}}
+    @nix develop --command python -m feels_sim.cli {{ARGS}}
 
 # Start Jupyter Lab
 jupyter:

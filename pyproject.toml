@@ -11,6 +11,11 @@ dependencies = [
     "numpy>=1.24.0",
     "polars>=0.20.0",
     "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",  # Enhanced statistical plotting
+    "typer>=0.9.0",
+    "agentpy>=0.1.5,<0.2",
+    "pandas>=1.5.0",  # Required by AgentPy
+    "networkx>=2.8",  # Required by AgentPy
 ]
 
 [project.optional-dependencies]

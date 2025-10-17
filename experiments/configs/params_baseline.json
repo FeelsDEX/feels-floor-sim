@@ -4,8 +4,8 @@
     "sol_volatility_daily": 0.05,
     "sol_trend_bias": 0.0,
     "base_fee_bps": 30,
-    "treasury_share_pct": 1.0,
-    "creator_share_pct": 0.5,
+    "protocol_fee_rate_bps": 100,
+    "creator_fee_rate_bps": 50,
     "jitosol_yield_apy": 0.07,
     "enable_participant_behavior": true
   },

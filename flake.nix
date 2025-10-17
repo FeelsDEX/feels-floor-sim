@@ -10,6 +10,92 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        
+        # Build SALib from GitHub since PyPI source is not available
+        salib = pkgs.python3Packages.buildPythonPackage rec {
+          pname = "SALib";
+          version = "1.5.1";
+          pyproject = true;
+          
+          src = pkgs.fetchFromGitHub {
+            owner = "SALib";
+            repo = "SALib";
+            rev = "v${version}";
+            sha256 = "sha256-aJmX0FzvgWSmp0LQv/V8vNg4aAp3xd4HlGoTk1Ce8Is=";
+          };
+          
+          build-system = with pkgs.python3Packages; [
+            hatchling
+            hatch-vcs
+          ];
+          
+          propagatedBuildInputs = with pkgs.python3Packages; [
+            numpy
+            scipy
+            matplotlib
+            pandas
+            multiprocess
+          ];
+          
+          # Skip tests to avoid test dependencies
+          doCheck = false;
+          
+          meta = with pkgs.lib; {
+            description = "Sensitivity Analysis Library in Python";
+            homepage = "https://github.com/SALib/SALib";
+            license = licenses.mit;
+          };
+        };
+        
+        # Build AgentPy from PyPI with environment variables to skip pytest-runner
+        agentpy = pkgs.python3Packages.buildPythonPackage rec {
+          pname = "agentpy";
+          version = "0.1.5";
+          format = "setuptools";
+          
+          src = pkgs.python3Packages.fetchPypi {
+            inherit pname version;
+            sha256 = "sha256-aQuCQ238thSiDUsRJ4G1JAlXrlbRPz2mOA0hiCr5fRM=";
+          };
+          
+          # Set environment variables to avoid pytest-runner
+          preBuild = ''
+            export SETUPTOOLS_SCM_PRETEND_VERSION="${version}"
+            export SKIP_PYTEST_RUNNER=1
+          '';
+          
+          # Patch setup.cfg to remove pytest-runner requirement
+          postPatch = ''
+            if [ -f setup.cfg ]; then
+              sed -i '/pytest-runner/d' setup.cfg
+            fi
+            if [ -f setup.py ]; then
+              sed -i 's/pytest-runner[^,]*,\?//g' setup.py
+              sed -i 's/,\s*pytest-runner[^,]*//g' setup.py
+            fi
+          '';
+          
+          propagatedBuildInputs = with pkgs.python3Packages; [
+            numpy
+            scipy
+            matplotlib
+            networkx
+            pandas
+            joblib
+            salib
+          ];
+          
+          # Skip tests and dependency checks for this older package
+          doCheck = false;
+          dontCheckRuntimeDeps = true;
+          
+          meta = with pkgs.lib; {
+            description = "Agent-based modeling in Python";
+            homepage = "https://github.com/jofmi/agentpy";
+            license = licenses.bsd3;
+          };
+        };
+        
         pythonEnv = pkgs.python3.withPackages (ps: with ps; [
           jupyter
           polars
@@ -19,6 +105,12 @@
           ipykernel
           pytest
           pytest-cov
+          typer
+          pandas
+          networkx
+          scipy
+          joblib
+          agentpy  # Now include agentpy
         ]);
       in
       {

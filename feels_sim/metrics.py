@@ -1,738 +1,395 @@
-"""Metrics collection and analysis utilities."""
+"""Polars-based metrics calculation system.
+
+Uses group_by_dynamic and declarative expressions for efficient time-based aggregations.
+"""
 
 from typing import List, Dict, Any, Optional
-import numpy as np
-from dataclasses import dataclass
-import json
-
-from .core import SimulationSnapshot, SimulationResults
+import polars as pl
+from .state import SimulationSnapshot, SimulationResults
 
 
-@dataclass
-class MetricsSummary:
-    """Summary of key simulation metrics."""
-    floor_growth_rate_annual: float
-    avg_floor_to_market_ratio: float
-    pomm_deployments: int
-    total_volume: float
-    total_fees: float
-    final_treasury_balance: float
-    final_buffer_balance: float
-    final_mintable_feelssol: float
-    lp_yield_apy: float
-    protocol_efficiency: float
-    buffer_utilization: float
-
-
-@dataclass
-class TimeseriesMetrics:
-    """Time-series metrics for detailed analysis."""
-    hourly_volume: List[float]
-    hourly_fees: List[float]
-    floor_deltas: List[float]
-    buffer_contributions: List[float]
-    mint_contributions: List[float]
-    floor_to_market_ratios: List[float]
-    participant_volumes: Dict[str, List[float]]
+def snapshots_to_dataframe(snapshots: List[SimulationSnapshot]) -> pl.DataFrame:
+    """Convert list of SimulationSnapshot objects to a polars DataFrame.
     
-
-@dataclass
-class AggregateMetrics:
-    """Metrics aggregated across different time horizons."""
-    daily: Dict[str, List[float]]
-    weekly: Dict[str, List[float]]
-    monthly: Dict[str, List[float]]
-
-
-class MetricsCollector:
-    """Collects and processes simulation metrics."""
-    
-    def __init__(self):
-        self.snapshots: List[SimulationSnapshot] = []
-        self.hourly_aggregates: List[Dict[str, Any]] = []
-    
-    def add_snapshot(self, snapshot: SimulationSnapshot):
-        """Add a snapshot to the collection."""
-        self.snapshots.append(snapshot)
-    
-    def add_hourly_aggregate(self, aggregate: Dict[str, Any]):
-        """Add an hourly aggregate to the collection."""
-        self.hourly_aggregates.append(aggregate)
-    
-    def calculate_floor_growth_rate(self) -> float:
-        """Calculate annualized floor price growth rate."""
-        if len(self.snapshots) < 2:
-            return 0.0
-        
-        initial_floor = self.snapshots[0].floor_price_usd
-        final_floor = self.snapshots[-1].floor_price_usd
-        
-        if initial_floor <= 0:
-            return 0.0
-        
-        # Calculate time period in years
-        minutes_elapsed = len(self.snapshots)
-        years_elapsed = minutes_elapsed / (365.25 * 24 * 60)
-        
-        if years_elapsed <= 0:
-            return 0.0
-        
-        # Calculate growth ratio
-        growth_ratio = final_floor / initial_floor
-        
-        # For very short periods or extreme growth, cap the annualized rate
-        if years_elapsed < 0.1 or growth_ratio > 1000:  # Less than ~36 days or 1000x growth
-            # Return simple percentage change rather than annualized
-            return (growth_ratio - 1.0)
-        
-        # Calculate compound annual growth rate
-        growth_rate = growth_ratio ** (1 / years_elapsed) - 1
-        
-        # Cap at reasonable maximum (1000% annual growth)
-        return min(growth_rate, 10.0)
-    
-    def calculate_floor_to_market_ratio(self) -> float:
-        """Calculate average floor-to-market price ratio."""
-        if not self.snapshots:
-            return 0.0
-        
-        ratios = []
-        for snapshot in self.snapshots:
-            if snapshot.sol_price_usd > 0:
-                # Approximate market price as SOL price (simplified for Phase 1)
-                ratio = snapshot.floor_price_usd / snapshot.sol_price_usd
-                ratios.append(ratio)
-        
-        return np.mean(ratios) if ratios else 0.0
-    
-    def calculate_pomm_deployment_count(self) -> int:
-        """Count total POMM deployments."""
-        return sum(1 for s in self.snapshots if s.events.get("pomm_deployed", False))
-    
-    def calculate_total_volume(self) -> float:
-        """Calculate total trading volume."""
-        return sum(s.volume_feelssol for s in self.snapshots)
-    
-    def calculate_total_fees(self) -> float:
-        """Calculate total fees collected."""
-        return sum(s.fees_collected for s in self.snapshots)
-    
-    def calculate_lp_yield_apy(self) -> float:
-        """Calculate annualized LP yield based on fee accrual."""
-        if not self.hourly_aggregates:
-            return 0.0
-        
-        total_lp_fees = sum(agg.get('lp_fees_earned', 0) for agg in self.hourly_aggregates)
-        avg_lp_positions = np.mean([agg.get('total_lp_positions', 0) for agg in self.hourly_aggregates])
-        
-        if avg_lp_positions <= 0:
-            return 0.0
-        
-        hours_elapsed = len(self.hourly_aggregates)
-        if hours_elapsed <= 0:
-            return 0.0
-        
-        # Calculate hourly yield rate
-        hourly_yield = total_lp_fees / (avg_lp_positions * hours_elapsed)
-        
-        # Annualize (8760 hours per year)
-        annual_yield = hourly_yield * 8760
-        
-        # Cap at reasonable maximum
-        return min(annual_yield, 10.0)
-    
-    def calculate_protocol_efficiency(self) -> float:
-        """Calculate protocol efficiency as floor advancement per fee dollar."""
-        if not self.snapshots or len(self.snapshots) < 2:
-            return 0.0
-        
-        total_fees = self.calculate_total_fees()
-        if total_fees <= 0:
-            return 0.0
-        
-        initial_floor = self.snapshots[0].floor_price_usd
-        final_floor = self.snapshots[-1].floor_price_usd
-        floor_advancement = final_floor - initial_floor
-        
-        return floor_advancement / total_fees
-    
-    def calculate_buffer_utilization(self) -> float:
-        """Calculate average buffer utilization rate."""
-        if not self.snapshots:
-            return 0.0
-        
-        utilizations = []
-        for snapshot in self.snapshots:
-            deployed = snapshot.floor_state.deployed_feelssol
-            available = snapshot.floor_state.buffer_balance + deployed
-            if available > 0:
-                utilizations.append(deployed / available)
-        
-        return np.mean(utilizations) if utilizations else 0.0
-    
-    def derive_hourly_aggregates(self) -> List[Dict[str, float]]:
-        """Derive hourly aggregates from minute snapshots."""
-        if not self.snapshots:
-            return []
-        
-        hourly_data = []
-        
-        # Group snapshots by hour
-        for hour in range(0, len(self.snapshots), 60):
-            hour_snapshots = self.snapshots[hour:hour + 60]
-            if not hour_snapshots:
-                continue
-            
-            aggregate = {
-                'hour': hour // 60,
-                'volume_feelssol': sum(s.volume_feelssol for s in hour_snapshots),
-                'fees_collected': sum(s.fees_collected for s in hour_snapshots),
-                'buffer_routed': 0.0,  # Derived from floor state changes
-                'mint_amount': 0.0,    # Derived from floor state changes
-                'pomm_deployments': sum(1 for s in hour_snapshots if s.events.get('pomm_deployed', False)),
-                'avg_sol_price': np.mean([s.sol_price_usd for s in hour_snapshots]),
-                'avg_floor_price': np.mean([s.floor_price_usd for s in hour_snapshots]),
-                'final_buffer_balance': hour_snapshots[-1].floor_state.buffer_balance,
-                'final_treasury_balance': hour_snapshots[-1].floor_state.treasury_balance,
-                'floor_delta': hour_snapshots[-1].floor_price_usd - hour_snapshots[0].floor_price_usd,
-            }
-            
-            # Calculate buffer routed and mint amounts from state changes
-            if hour > 0:
-                prev_hour_end = hour - 1
-                if prev_hour_end < len(self.snapshots):
-                    prev_state = self.snapshots[prev_hour_end].floor_state
-                    current_state = hour_snapshots[-1].floor_state
-                    
-                    # Estimate buffer routed from cumulative changes
-                    buffer_change = current_state.buffer_routed_cumulative - prev_state.buffer_routed_cumulative
-                    mint_change = current_state.mint_cumulative - prev_state.mint_cumulative
-                    
-                    aggregate['buffer_routed'] = max(0.0, buffer_change)
-                    aggregate['mint_amount'] = max(0.0, mint_change)
-            
-            # Add participant metrics if available
-            if hasattr(hour_snapshots[0], 'participant_volumes'):
-                for participant_type in ['retail', 'algo', 'lp', 'arbitrageur']:
-                    volumes = [getattr(s, 'participant_volumes', {}).get(participant_type, 0) for s in hour_snapshots]
-                    aggregate[f'{participant_type}_volume'] = sum(volumes)
-            
-            hourly_data.append(aggregate)
-        
-        return hourly_data
-    
-    def derive_daily_aggregates(self) -> List[Dict[str, float]]:
-        """Derive daily aggregates from hourly data."""
-        hourly_data = self.derive_hourly_aggregates()
-        if not hourly_data:
-            return []
-        
-        daily_data = []
-        
-        # Group hourly data by day (24 hours)
-        for day in range(0, len(hourly_data), 24):
-            day_hours = hourly_data[day:day + 24]
-            if not day_hours:
-                continue
-            
-            aggregate = {
-                'day': day // 24,
-                'volume_feelssol': sum(h['volume_feelssol'] for h in day_hours),
-                'fees_collected': sum(h['fees_collected'] for h in day_hours),
-                'buffer_routed': sum(h['buffer_routed'] for h in day_hours),
-                'mint_amount': sum(h['mint_amount'] for h in day_hours),
-                'pomm_deployments': sum(h['pomm_deployments'] for h in day_hours),
-                'avg_sol_price': np.mean([h['avg_sol_price'] for h in day_hours]),
-                'avg_floor_price': np.mean([h['avg_floor_price'] for h in day_hours]),
-                'floor_delta': sum(h['floor_delta'] for h in day_hours),
-                'final_buffer_balance': day_hours[-1]['final_buffer_balance'],
-                'final_treasury_balance': day_hours[-1]['final_treasury_balance'],
-            }
-            
-            daily_data.append(aggregate)
-        
-        return daily_data
-    
-    def derive_weekly_aggregates(self) -> List[Dict[str, float]]:
-        """Derive weekly aggregates from daily data."""
-        daily_data = self.derive_daily_aggregates()
-        if not daily_data:
-            return []
-        
-        weekly_data = []
-        
-        # Group daily data by week (7 days)
-        for week in range(0, len(daily_data), 7):
-            week_days = daily_data[week:week + 7]
-            if not week_days:
-                continue
-            
-            aggregate = {
-                'week': week // 7,
-                'volume_feelssol': sum(d['volume_feelssol'] for d in week_days),
-                'fees_collected': sum(d['fees_collected'] for d in week_days),
-                'buffer_routed': sum(d['buffer_routed'] for d in week_days),
-                'mint_amount': sum(d['mint_amount'] for d in week_days),
-                'pomm_deployments': sum(d['pomm_deployments'] for d in week_days),
-                'avg_sol_price': np.mean([d['avg_sol_price'] for d in week_days]),
-                'avg_floor_price': np.mean([d['avg_floor_price'] for d in week_days]),
-                'floor_delta': sum(d['floor_delta'] for d in week_days),
-                'final_buffer_balance': week_days[-1]['final_buffer_balance'],
-                'final_treasury_balance': week_days[-1]['final_treasury_balance'],
-            }
-            
-            weekly_data.append(aggregate)
-        
-        return weekly_data
-    
-    def export_metrics(self, file_path: str = None, format: str = 'json') -> None:
-        """Export metrics to file (defaults to experiments/outputs/data/)."""
-        metrics_data = {
-            'summary': {
-                'floor_growth_rate_annual': self.calculate_floor_growth_rate(),
-                'avg_floor_to_market_ratio': self.calculate_floor_to_market_ratio(),
-                'pomm_deployments': self.calculate_pomm_deployment_count(),
-                'total_volume': self.calculate_total_volume(),
-                'total_fees': self.calculate_total_fees(),
-                'lp_yield_apy': self.calculate_lp_yield_apy(),
-                'protocol_efficiency': self.calculate_protocol_efficiency(),
-                'buffer_utilization': self.calculate_buffer_utilization(),
-            },
-            'aggregates': {
-                'hourly': self.derive_hourly_aggregates(),
-                'daily': self.derive_daily_aggregates(),
-                'weekly': self.derive_weekly_aggregates(),
-            }
-        }
-        
-        if format.lower() == 'json':
-            if file_path:
-                # Ensure the directory exists
-                import os
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                with open(file_path, 'w') as f:
-                    json.dump(metrics_data, f, indent=2)
-                print(f"Metrics exported to {file_path}")
-            else:
-                # Default to experiments/outputs/data/ directory
-                import os
-                from datetime import datetime
-                
-                output_dir = "experiments/outputs/data"
-                os.makedirs(output_dir, exist_ok=True)
-                
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                default_path = f"{output_dir}/simulation_metrics_{timestamp}.json"
-                
-                with open(default_path, 'w') as f:
-                    json.dump(metrics_data, f, indent=2)
-                print(f"Metrics exported to {default_path}")
-        else:
-            raise ValueError(f"Unsupported format: {format}")
-
-
-def analyze_results(results: SimulationResults) -> Dict[str, Any]:
+    Creates a structured DataFrame with all simulation data for efficient
+    time-series analysis and aggregation using polars expressions.
     """
-    Analyze simulation results and return key metrics.
+    if not snapshots:
+        return pl.DataFrame()
+    
+    # Extract all data from snapshots into lists for DataFrame construction
+    data = {
+        # Core simulation timing and prices
+        "timestamp": [s.timestamp for s in snapshots],
+        "sol_price_usd": [s.sol_price_usd for s in snapshots],
+        "floor_price_feelssol": [s.floor_price_feelssol for s in snapshots],
+        "floor_price_usd": [s.floor_price_usd for s in snapshots],
+        
+        # Trading activity metrics
+        "volume_feelssol": [s.volume_feelssol for s in snapshots],
+        "fees_collected": [s.fees_collected for s in snapshots],
+        "jit_volume_boost": [s.jit_volume_boost for s in snapshots],
+        "jit_active": [s.jit_active for s in snapshots],
+        "pomm_deployed": [s.events.get("pomm_deployed", False) for s in snapshots],
+        
+        # Floor funding state tracking
+        "treasury_balance": [s.floor_state.treasury_balance for s in snapshots],
+        "creator_balance": [s.floor_state.creator_balance for s in snapshots],
+        "buffer_balance": [s.floor_state.buffer_balance for s in snapshots],
+        "mintable_feelssol": [s.floor_state.mintable_feelssol for s in snapshots],
+        "deployed_feelssol": [s.floor_state.deployed_feelssol for s in snapshots],
+        "buffer_routed_cumulative": [s.floor_state.buffer_routed_cumulative for s in snapshots],
+        "mint_cumulative": [s.floor_state.mint_cumulative for s in snapshots],
+        "lp_fee_cumulative": [s.floor_state.lp_fee_cumulative for s in snapshots],
+        
+        # Price movement tracking for impact analysis
+        "start_tick": [s.price_path[0] for s in snapshots],
+        "end_tick": [s.price_path[1] for s in snapshots],
+    }
+    
+    # Add participant volume data dynamically based on what's present
+    participant_types = set()  # Discover all participant types in data
+    for snapshot in snapshots:
+        participant_types.update(snapshot.participant_volumes.keys())
+    
+    # Create volume columns for each participant type found
+    for ptype in participant_types:
+        data[f"{ptype}_volume"] = [
+            s.participant_volumes.get(ptype, 0.0) for s in snapshots
+        ]
+    
+    # Create DataFrame with proper time indexing
+    df = pl.DataFrame(data)
+    
+    # Add derived columns for time-based analysis
+    df = df.with_columns([
+        # Convert timestamp to datetime-like for time operations
+        (pl.col("timestamp") * pl.duration(minutes=1)).alias("datetime"),
+        
+        # Add hour and day columns for grouping
+        (pl.col("timestamp") // 60).alias("hour"),
+        (pl.col("timestamp") // (60 * 24)).alias("day"),
+        
+        # Price change calculations
+        (pl.col("sol_price_usd").pct_change()).alias("sol_price_change"),
+        (pl.col("floor_price_usd").pct_change()).alias("floor_price_change"),
+        
+        # Floor to market ratio
+        (pl.col("floor_price_usd") / pl.col("sol_price_usd")).alias("floor_to_market_ratio"),
+        
+        # Tick movements
+        (pl.col("end_tick") - pl.col("start_tick")).alias("tick_change"),
+    ])
+    
+    return df
+
+
+def calculate_twap_and_volatility(df: pl.DataFrame, window_minutes: int = 60) -> pl.DataFrame:
+    """Add TWAP and volatility calculations using polars rolling windows.
+    
+    Replaces the manual PriceHistory class with efficient polars operations.
+    """
+    if df.is_empty():
+        return df
+    
+    # Add rolling calculations
+    df_with_rolling = df.with_columns([
+        # TWAP (Time-Weighted Average Price) using rolling mean of end_tick
+        pl.col("end_tick").rolling_mean(window_size=window_minutes).alias("twap_tick"),
+        
+        # Price volatility using rolling standard deviation of tick changes
+        pl.col("tick_change").abs().rolling_std(window_size=min(window_minutes, 30)).alias("tick_volatility"),
+        
+        # Rolling volume averages
+        pl.col("volume_feelssol").rolling_mean(window_size=window_minutes).alias("avg_volume"),
+        
+        # Rolling fee collection
+        pl.col("fees_collected").rolling_sum(window_size=window_minutes).alias("hourly_fees"),
+    ])
+    
+    return df_with_rolling
+
+
+def calculate_key_metrics(snapshots: List[SimulationSnapshot]) -> Dict[str, Any]:
+    """Calculate all key simulation metrics using polars operations.
     
     Args:
-        results: Complete simulation results
-    
+        snapshots: List of simulation snapshots to analyze
+        
     Returns:
-        Dictionary of analysis metrics
+        Dictionary containing all key performance metrics
     """
-    collector = MetricsCollector()
-    for snapshot in results.snapshots:
-        collector.add_snapshot(snapshot)
-    
-    # Add hourly aggregates if available
-    if hasattr(results, 'hourly_aggregates'):
-        for aggregate in results.hourly_aggregates:
-            collector.add_hourly_aggregate(aggregate)
-    
-    if not results.snapshots:
+    if not snapshots:
         return {}
     
-    final_snapshot = results.snapshots[-1]
+    # Convert snapshots to polars DataFrame for efficient processing
+    df = snapshots_to_dataframe(snapshots)
     
-    analysis = {
-        "floor_growth_rate_annual": collector.calculate_floor_growth_rate(),
-        "avg_floor_to_market_ratio": collector.calculate_floor_to_market_ratio(),
-        "pomm_deployments": collector.calculate_pomm_deployment_count(),
-        "total_volume": collector.calculate_total_volume(),
-        "total_fees": collector.calculate_total_fees(),
-        "lp_yield_apy": collector.calculate_lp_yield_apy(),
-        "protocol_efficiency": collector.calculate_protocol_efficiency(),
-        "buffer_utilization": collector.calculate_buffer_utilization(),
+    if df.is_empty():
+        return {}
+    
+    # Calculate basic aggregates using polars expressions
+    metrics = {}
+    
+    # Floor growth rate calculation
+    initial_floor = df.select("floor_price_usd").item(0, 0)
+    final_floor = df.select("floor_price_usd").item(-1, 0)
+    
+    if initial_floor > 0 and len(snapshots) > 1:
+        minutes_elapsed = len(snapshots)
+        years_elapsed = minutes_elapsed / (365.25 * 24 * 60)
+        
+        if years_elapsed > 0:
+            growth_ratio = final_floor / initial_floor
+            if years_elapsed < 0.1 or growth_ratio > 1000:
+                metrics["floor_growth_rate_annual"] = growth_ratio - 1.0
+            else:
+                metrics["floor_growth_rate_annual"] = min(growth_ratio ** (1 / years_elapsed) - 1, 10.0)
+        else:
+            metrics["floor_growth_rate_annual"] = 0.0
+    else:
+        metrics["floor_growth_rate_annual"] = 0.0
+    
+    # Aggregate metrics using polars expressions
+    aggregates = df.select([
+        # Volume and fees
+        pl.col("volume_feelssol").sum().alias("total_volume"),
+        pl.col("fees_collected").sum().alias("total_fees"),
+        
+        # POMM metrics
+        pl.col("pomm_deployed").sum().alias("pomm_deployments"),
+        
+        # Floor to market ratio
+        (pl.col("floor_price_usd") / pl.col("sol_price_usd").filter(pl.col("sol_price_usd") > 0)).mean().alias("avg_floor_to_market_ratio"),
+        
+        # JIT metrics
+        pl.col("jit_volume_boost").sum().alias("jit_total_volume_boost"),
+        pl.col("jit_active").sum().alias("jit_active_minutes"),
+        
+        # Buffer utilization
+        ((pl.col("deployed_feelssol") / (pl.col("buffer_balance") + pl.col("deployed_feelssol")))
+         .filter((pl.col("buffer_balance") + pl.col("deployed_feelssol")) > 0)).mean().alias("buffer_utilization"),
+    ]).to_dicts()[0]
+    
+    # Add aggregated metrics to results
+    metrics.update(aggregates)
+    
+    # Final state metrics
+    final_snapshot = snapshots[-1]
+    metrics.update({
         "final_treasury_balance": final_snapshot.floor_state.treasury_balance,
         "final_buffer_balance": final_snapshot.floor_state.buffer_balance,
         "final_mintable_feelssol": final_snapshot.floor_state.mintable_feelssol,
         "final_deployed_feelssol": final_snapshot.floor_state.deployed_feelssol,
         "buffer_routed_cumulative": final_snapshot.floor_state.buffer_routed_cumulative,
         "mint_cumulative": final_snapshot.floor_state.mint_cumulative,
-        "simulation_hours": len(results.snapshots) / 60,
-        "initial_floor_price": results.snapshots[0].floor_price_usd,
+        "simulation_hours": len(snapshots) / 60,
+        "initial_floor_price": snapshots[0].floor_price_usd,
         "final_floor_price": final_snapshot.floor_price_usd,
-        "initial_sol_price": results.snapshots[0].sol_price_usd,
-        "final_sol_price": final_snapshot.sol_price_usd
-    }
+        "initial_sol_price": snapshots[0].sol_price_usd,
+        "final_sol_price": final_snapshot.sol_price_usd,
+    })
     
-    return analysis
+    # Calculate protocol efficiency
+    if metrics["total_fees"] > 0:
+        floor_advancement = final_floor - initial_floor
+        metrics["protocol_efficiency"] = floor_advancement / metrics["total_fees"]
+    else:
+        metrics["protocol_efficiency"] = 0.0
+    
+    # Calculate LP yield APY (simplified - would need hourly data for accurate calculation)
+    metrics["lp_yield_apy"] = 0.0  # Placeholder - requires more complex calculation
+    
+    return metrics
 
 
-def calculate_floor_floor_ratio_stats(results: SimulationResults) -> Dict[str, float]:
-    """Calculate statistical measures of floor/market price ratio."""
-    if not results.snapshots:
-        return {}
+def calculate_time_aggregates(snapshots: List[SimulationSnapshot], 
+                            timeframe: str = "1h") -> List[Dict[str, Any]]:
+    """Calculate time-based aggregates using polars group_by_dynamic.
     
-    ratios = []
-    for snapshot in results.snapshots:
-        if snapshot.sol_price_usd > 0:
-            ratio = snapshot.floor_price_usd / snapshot.sol_price_usd
-            ratios.append(ratio)
-    
-    if not ratios:
-        return {}
-    
-    return {
-        'mean_floor_ratio': np.mean(ratios),
-        'median_floor_ratio': np.median(ratios),
-        'std_floor_ratio': np.std(ratios),
-        'min_floor_ratio': np.min(ratios),
-        'max_floor_ratio': np.max(ratios),
-        'p25_floor_ratio': np.percentile(ratios, 25),
-        'p75_floor_ratio': np.percentile(ratios, 75)
-    }
-
-
-def calculate_pomm_efficiency_metrics(results: SimulationResults) -> Dict[str, float]:
-    """Calculate POMM deployment efficiency metrics."""
-    if not results.snapshots:
-        return {}
-    
-    deployments = [s for s in results.snapshots if s.events.get('pomm_deployed', False)]
-    
-    if not deployments:
-        return {'pomm_count': 0, 'avg_deployment_size': 0, 'deployment_frequency': 0}
-    
-    # Estimate deployment sizes from buffer balance changes
-    deployment_sizes = []
-    for i, deployment in enumerate(deployments):
-        if i > 0:
-            # Look at buffer balance change around deployment
-            prev_deployment = deployments[i-1]
-            buffer_change = prev_deployment.floor_state.buffer_balance - deployment.floor_state.buffer_balance
-            if buffer_change > 0:
-                deployment_sizes.append(buffer_change)
-        else:
-            # For first deployment, estimate from current buffer balance
-            if deployment.floor_state.buffer_balance > 0:
-                deployment_sizes.append(deployment.floor_state.buffer_balance)
-    
-    hours_elapsed = len(results.snapshots) / 60
-    deployment_frequency = len(deployments) / max(hours_elapsed, 0.1)  # deployments per hour
-    
-    return {
-        'pomm_count': len(deployments),
-        'avg_deployment_size': np.mean(deployment_sizes) if deployment_sizes else 0,
-        'median_deployment_size': np.median(deployment_sizes) if deployment_sizes else 0,
-        'deployment_frequency': deployment_frequency,
-        'total_deployed_amount': sum(deployment_sizes)
-    }
-
-
-def calculate_volume_elasticity(low_fee_results: SimulationResults, high_fee_results: SimulationResults) -> Dict[str, float]:
-    """Calculate fee elasticity of trading volume."""
-    low_volume = sum(s.volume_feelssol for s in low_fee_results.snapshots)
-    high_volume = sum(s.volume_feelssol for s in high_fee_results.snapshots)
-    
-    if low_volume == 0 or high_volume == 0:
-        return {'elasticity': 0, 'volume_change_pct': 0}
-    
-    volume_change_pct = (low_volume - high_volume) / high_volume
-    
-    # Simple elasticity calculation (percentage change in volume / percentage change in fee)
-    # This would require fee rate information to be precise
-    
-    return {
-        'low_fee_volume': low_volume,
-        'high_fee_volume': high_volume,
-        'volume_change_pct': volume_change_pct,
-        'elasticity_observed': low_volume > high_volume  # Boolean indicating if elasticity exists
-    }
-
-
-def create_summary_plots(results: SimulationResults, save_path: str = None) -> None:
-    """
-    Create summary plots of simulation results.
+    Uses polars' powerful time-based grouping for efficient aggregation.
     
     Args:
-        results: Simulation results to plot
-        save_path: Optional path to save plots (defaults to experiments/outputs/plots/)
+        snapshots: List of simulation snapshots
+        timeframe: Time period for aggregation ("1h", "1d", "1w")
+        
+    Returns:
+        List of aggregated metrics for each time period
     """
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("matplotlib not available, skipping plots")
-        return
+    if not snapshots:
+        return []
     
-    if not results.snapshots:
-        print("No data to plot")
-        return
+    df = snapshots_to_dataframe(snapshots)
     
-    # Create figure with subplots
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    fig.suptitle("Feels Simulation Results", fontsize=16)
+    if df.is_empty():
+        return []
     
-    # Extract time series data
-    minutes = [s.timestamp for s in results.snapshots]
-    hours = [m / 60 for m in minutes]
-    sol_prices = [s.sol_price_usd for s in results.snapshots]
-    floor_prices = [s.floor_price_usd for s in results.snapshots]
-    volumes = [s.volume_feelssol for s in results.snapshots]
-    buffer_balances = [s.floor_state.buffer_balance for s in results.snapshots]
-    mintable_balances = [s.floor_state.mintable_feelssol for s in results.snapshots]
-    treasury_balances = [s.floor_state.treasury_balance for s in results.snapshots]
+    # Convert timestamp to proper datetime for group_by_dynamic
+    # Use a simpler approach that works with current polars version
+    df = df.with_columns([
+        (pl.datetime(2024, 1, 1) + pl.col("timestamp") * pl.duration(minutes=1)).alias("datetime")
+    ])
     
-    # Plot 1: Price evolution
-    axes[0, 0].plot(hours, sol_prices, label='SOL Price', alpha=0.8, linewidth=1.5)
-    axes[0, 0].plot(hours, floor_prices, label='Floor Price', alpha=0.8, linewidth=1.5)
-    axes[0, 0].set_xlabel('Hours')
-    axes[0, 0].set_ylabel('Price (USD)')
-    axes[0, 0].set_title('Price Evolution')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    # Plot 2: Trading volume
-    axes[0, 1].plot(hours, volumes, alpha=0.7, color='green')
-    axes[0, 1].set_xlabel('Hours')
-    axes[0, 1].set_ylabel('Volume (FeelsSOL)')
-    axes[0, 1].set_title('Trading Volume')
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    # Plot 3: Floor to market ratio
-    floor_to_market = [f/s if s > 0 else 0 for f, s in zip(floor_prices, sol_prices)]
-    axes[0, 2].plot(hours, floor_to_market, alpha=0.7, color='purple')
-    axes[0, 2].set_xlabel('Hours')
-    axes[0, 2].set_ylabel('Ratio')
-    axes[0, 2].set_title('Floor/Market Price Ratio')
-    axes[0, 2].grid(True, alpha=0.3)
-    
-    # Plot 4: Buffer and funding sources
-    axes[1, 0].plot(hours, buffer_balances, label='Buffer', alpha=0.7)
-    axes[1, 0].plot(hours, mintable_balances, label='Mintable FeelsSOL', alpha=0.7)
-    axes[1, 0].set_xlabel('Hours')
-    axes[1, 0].set_ylabel('FeelsSOL')
-    axes[1, 0].set_title('Funding Sources')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    # Plot 5: Treasury accumulation
-    axes[1, 1].plot(hours, treasury_balances, alpha=0.7, color='orange')
-    axes[1, 1].set_xlabel('Hours')
-    axes[1, 1].set_ylabel('FeelsSOL')
-    axes[1, 1].set_title('Treasury Balance')
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    # Plot 6: POMM deployment events
-    pomm_events = [(h, 1) for h, s in zip(hours, results.snapshots) if s.events.get('pomm_deployed', False)]
-    if pomm_events:
-        pomm_hours, pomm_markers = zip(*pomm_events)
-        axes[1, 2].scatter(pomm_hours, pomm_markers, alpha=0.7, color='red', s=50)
-        axes[1, 2].set_xlabel('Hours')
-        axes[1, 2].set_ylabel('Deployment Event')
-        axes[1, 2].set_title('POMM Deployments')
-        axes[1, 2].set_ylim(0, 1.5)
-    else:
-        axes[1, 2].text(0.5, 0.5, 'No POMM\nDeployments', ha='center', va='center', transform=axes[1, 2].transAxes)
-        axes[1, 2].set_title('POMM Deployments')
-    axes[1, 2].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        # Ensure the directory exists
-        import os
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Plots saved to {save_path}")
-    else:
-        # Default to experiments/outputs/plots/ directory
-        import os
-        from datetime import datetime
+    # Define aggregation expressions
+    agg_exprs = [
+        # Sum additive metrics
+        pl.col("volume_feelssol").sum().alias("volume_feelssol"),
+        pl.col("fees_collected").sum().alias("fees_collected"),
+        pl.col("pomm_deployed").sum().alias("pomm_deployments"),
+        pl.col("jit_volume_boost").sum().alias("jit_volume_boost"),
+        pl.col("jit_active").sum().alias("jit_active_minutes"),
         
-        output_dir = "experiments/outputs/plots"
-        os.makedirs(output_dir, exist_ok=True)
+        # Average point-in-time metrics
+        pl.col("sol_price_usd").mean().alias("avg_sol_price"),
+        pl.col("floor_price_usd").mean().alias("avg_floor_price"),
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_path = f"{output_dir}/simulation_summary_{timestamp}.png"
+        # End-of-period balances
+        pl.col("buffer_balance").last().alias("final_buffer_balance"),
+        pl.col("treasury_balance").last().alias("final_treasury_balance"),
+        pl.col("deployed_feelssol").last().alias("final_deployed_feelssol"),
         
-        plt.savefig(default_path, dpi=150, bbox_inches='tight')
-        print(f"Plots saved to {default_path}")
+        # Period changes
+        (pl.col("floor_price_usd").last() - pl.col("floor_price_usd").first()).alias("floor_delta"),
+        (pl.col("buffer_routed_cumulative").last() - pl.col("buffer_routed_cumulative").first()).alias("buffer_routed"),
+        (pl.col("mint_cumulative").last() - pl.col("mint_cumulative").first()).alias("mint_amount"),
+    ]
     
-    plt.close()
+    # Add participant volume aggregations dynamically
+    participant_cols = [col for col in df.columns if col.endswith("_volume") and col != "volume_feelssol"]
+    for col in participant_cols:
+        agg_exprs.append(pl.col(col).sum().alias(col))
+    
+    # Use group_by_dynamic for time-based aggregation
+    result_df = (df
+                .sort("datetime")
+                .group_by_dynamic("datetime", every=timeframe, closed="left")
+                .agg(agg_exprs)
+                .sort("datetime"))
+    
+    return result_df.to_dicts()
 
 
-def create_detailed_analysis_plots(results: SimulationResults, save_path: str = None) -> None:
-    """Create detailed analysis plots with aggregated data."""
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("matplotlib not available, skipping plots")
-        return
-    
-    if not results.snapshots:
-        print("No data to plot")
-        return
-    
-    # Create metrics collector for aggregation
-    collector = MetricsCollector()
-    for snapshot in results.snapshots:
-        collector.add_snapshot(snapshot)
-    
-    hourly_data = collector.derive_hourly_aggregates()
-    if not hourly_data:
-        print("No hourly data available")
-        return
-    
-    # Create figure with subplots
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle("Detailed Analysis - Hourly Aggregates", fontsize=16)
-    
-    hours = [h['hour'] for h in hourly_data]
-    hourly_volumes = [h['volume_feelssol'] for h in hourly_data]
-    hourly_fees = [h['fees_collected'] for h in hourly_data]
-    floor_deltas = [h['floor_delta'] for h in hourly_data]
-    pomm_counts = [h['pomm_deployments'] for h in hourly_data]
-    
-    # Plot 1: Hourly volume
-    axes[0, 0].bar(hours, hourly_volumes, alpha=0.7, color='steelblue')
-    axes[0, 0].set_xlabel('Hours')
-    axes[0, 0].set_ylabel('Volume (FeelsSOL)')
-    axes[0, 0].set_title('Hourly Trading Volume')
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    # Plot 2: Hourly fees
-    axes[0, 1].bar(hours, hourly_fees, alpha=0.7, color='forestgreen')
-    axes[0, 1].set_xlabel('Hours')
-    axes[0, 1].set_ylabel('Fees (FeelsSOL)')
-    axes[0, 1].set_title('Hourly Fee Collection')
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    # Plot 3: Floor price advances
-    axes[1, 0].bar(hours, floor_deltas, alpha=0.7, color='darkorange')
-    axes[1, 0].set_xlabel('Hours')
-    axes[1, 0].set_ylabel('Floor Advance (USD)')
-    axes[1, 0].set_title('Hourly Floor Price Advances')
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    # Plot 4: POMM deployment frequency
-    axes[1, 1].bar(hours, pomm_counts, alpha=0.7, color='purple')
-    axes[1, 1].set_xlabel('Hours')
-    axes[1, 1].set_ylabel('POMM Deployments')
-    axes[1, 1].set_title('Hourly POMM Deployments')
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        # Ensure the directory exists
-        import os
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        base_path = save_path.replace('.png', '_detailed.png')
-        plt.savefig(base_path, dpi=150, bbox_inches='tight')
-        print(f"Detailed plots saved to {base_path}")
-    else:
-        # Default to experiments/outputs/plots/ directory
-        import os
-        from datetime import datetime
-        
-        output_dir = "experiments/outputs/plots"
-        os.makedirs(output_dir, exist_ok=True)
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_path = f"{output_dir}/simulation_detailed_{timestamp}.png"
-        
-        plt.savefig(default_path, dpi=150, bbox_inches='tight')
-        print(f"Detailed plots saved to {default_path}")
-    
-    plt.close()
+def calculate_hourly_aggregates(snapshots: List[SimulationSnapshot]) -> List[Dict[str, Any]]:
+    """Calculate hourly aggregates using group_by_dynamic."""
+    return calculate_time_aggregates(snapshots, "1h")
 
 
-def generate_summary_report(results: SimulationResults, file_path: str = None) -> str:
-    """Generate a markdown summary report of simulation results."""
-    analysis = analyze_results(results)
-    pomm_metrics = calculate_pomm_efficiency_metrics(results)
-    ratio_stats = calculate_floor_floor_ratio_stats(results)
+def calculate_daily_aggregates(snapshots: List[SimulationSnapshot]) -> List[Dict[str, Any]]:
+    """Calculate daily aggregates using group_by_dynamic."""
+    return calculate_time_aggregates(snapshots, "1d")
+
+
+def calculate_weekly_aggregates(snapshots: List[SimulationSnapshot]) -> List[Dict[str, Any]]:
+    """Calculate weekly aggregates using group_by_dynamic."""
+    return calculate_time_aggregates(snapshots, "1w")
+
+
+def calculate_floor_to_market_ratio_stats(snapshots: List[SimulationSnapshot]) -> Dict[str, float]:
+    """Calculate statistical measures of floor/market price ratio using polars."""
+    if not snapshots:
+        return {}
     
-    report = f"""# Feels Simulation Summary Report
+    df = snapshots_to_dataframe(snapshots)
+    
+    if df.is_empty():
+        return {}
+    
+    # Calculate ratio statistics using polars expressions
+    stats = (df
+            .filter(pl.col("sol_price_usd") > 0)
+            .with_columns((pl.col("floor_price_usd") / pl.col("sol_price_usd")).alias("ratio"))
+            .select([
+                pl.col("ratio").mean().alias("mean_floor_ratio"),
+                pl.col("ratio").median().alias("median_floor_ratio"),
+                pl.col("ratio").std().alias("std_floor_ratio"),
+                pl.col("ratio").min().alias("min_floor_ratio"),
+                pl.col("ratio").max().alias("max_floor_ratio"),
+                pl.col("ratio").quantile(0.25).alias("p25_floor_ratio"),
+                pl.col("ratio").quantile(0.75).alias("p75_floor_ratio"),
+            ])
+            .to_dicts())
+    
+    return stats[0] if stats else {}
 
-## Simulation Overview
-- **Duration**: {analysis.get('simulation_hours', 0):.1f} hours
-- **Initial SOL Price**: ${analysis.get('initial_sol_price', 0):.2f}
-- **Final SOL Price**: ${analysis.get('final_sol_price', 0):.2f}
-- **Initial Floor Price**: ${analysis.get('initial_floor_price', 0):.4f}
-- **Final Floor Price**: ${analysis.get('final_floor_price', 0):.4f}
 
-## Key Metrics
+def calculate_pomm_efficiency_metrics(snapshots: List[SimulationSnapshot]) -> Dict[str, float]:
+    """Calculate POMM deployment efficiency metrics using polars."""
+    if not snapshots:
+        return {}
+    
+    df = snapshots_to_dataframe(snapshots)
+    
+    if df.is_empty():
+        return {"pomm_count": 0, "avg_deployment_size": 0, "deployment_frequency": 0}
+    
+    # Find POMM deployment events
+    deployment_df = df.filter(pl.col("pomm_deployed") == True)
+    
+    if deployment_df.is_empty():
+        return {"pomm_count": 0, "avg_deployment_size": 0, "deployment_frequency": 0}
+    
+    # Calculate deployment metrics
+    pomm_count = len(deployment_df)
+    
+    # Estimate deployment sizes by looking at buffer balance changes
+    deployment_sizes = []
+    for i in range(len(deployment_df)):
+        if i > 0:
+            current_buffer = deployment_df.item(i, "buffer_balance")
+            prev_buffer = deployment_df.item(i-1, "buffer_balance")
+            if prev_buffer > current_buffer:
+                deployment_sizes.append(prev_buffer - current_buffer)
+    
+    avg_deployment_size = sum(deployment_sizes) / len(deployment_sizes) if deployment_sizes else 0
+    
+    # Calculate deployment frequency (deployments per hour)
+    hours_elapsed = len(df) / 60
+    deployment_frequency = pomm_count / max(hours_elapsed, 0.1)
+    
+    return {
+        "pomm_count": pomm_count,
+        "avg_deployment_size": avg_deployment_size,
+        "median_deployment_size": sorted(deployment_sizes)[len(deployment_sizes)//2] if deployment_sizes else 0,
+        "deployment_frequency": deployment_frequency,
+        "total_deployed_amount": sum(deployment_sizes),
+    }
 
-### Floor Price Performance
-- **Annual Growth Rate**: {analysis.get('floor_growth_rate_annual', 0):.2%}
-- **Average Floor/Market Ratio**: {analysis.get('avg_floor_to_market_ratio', 0):.2%}
-- **Protocol Efficiency**: {analysis.get('protocol_efficiency', 0):.4f} USD/FeelsSOL
 
-### Trading Activity
-- **Total Volume**: {analysis.get('total_volume', 0):,.0f} FeelsSOL
-- **Total Fees**: {analysis.get('total_fees', 0):,.2f} FeelsSOL
-- **LP Yield APY**: {analysis.get('lp_yield_apy', 0):.2%}
-
-### POMM Performance
-- **Total Deployments**: {pomm_metrics.get('pomm_count', 0)}
-- **Average Deployment Size**: {pomm_metrics.get('avg_deployment_size', 0):,.2f} FeelsSOL
-- **Deployment Frequency**: {pomm_metrics.get('deployment_frequency', 0):.2f} per hour
-- **Buffer Utilization**: {analysis.get('buffer_utilization', 0):.2%}
-
-### Final Balances
-- **Buffer Balance**: {analysis.get('final_buffer_balance', 0):,.2f} FeelsSOL
-- **Treasury Balance**: {analysis.get('final_treasury_balance', 0):,.2f} FeelsSOL
-- **Mintable FeelsSOL**: {analysis.get('final_mintable_feelssol', 0):,.2f} FeelsSOL
-- **Deployed FeelsSOL**: {analysis.get('final_deployed_feelssol', 0):,.2f} FeelsSOL
-
-### Floor/Market Ratio Statistics
-- **Mean**: {ratio_stats.get('mean_floor_ratio', 0):.3f}
-- **Median**: {ratio_stats.get('median_floor_ratio', 0):.3f}
-- **Standard Deviation**: {ratio_stats.get('std_floor_ratio', 0):.3f}
-- **Min**: {ratio_stats.get('min_floor_ratio', 0):.3f}
-- **Max**: {ratio_stats.get('max_floor_ratio', 0):.3f}
-
-## Funding Sources
-- **Buffer Routed (Cumulative)**: {analysis.get('buffer_routed_cumulative', 0):,.2f} FeelsSOL
-- **Mint (Cumulative)**: {analysis.get('mint_cumulative', 0):,.2f} FeelsSOL
-
----
-*Report generated from Feels simulation data*
-"""
+def export_metrics_to_file(snapshots: List[SimulationSnapshot], 
+                          file_path: Optional[str] = None) -> None:
+    """Export comprehensive metrics to JSON file."""
+    import json
+    import os
+    from datetime import datetime
+    
+    # Calculate all metrics
+    metrics_data = {
+        'summary': calculate_key_metrics(snapshots),
+        'aggregates': {
+            'hourly': calculate_hourly_aggregates(snapshots),
+            'daily': calculate_daily_aggregates(snapshots),
+            'weekly': calculate_weekly_aggregates(snapshots),
+        },
+        'statistics': {
+            'floor_ratio_stats': calculate_floor_to_market_ratio_stats(snapshots),
+            'pomm_efficiency': calculate_pomm_efficiency_metrics(snapshots),
+        }
+    }
     
     if file_path:
         # Ensure the directory exists
-        import os
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w') as f:
-            f.write(report)
-        print(f"Report saved to {file_path}")
+            json.dump(metrics_data, f, indent=2)
+        print(f"Metrics exported to {file_path}")
     else:
-        # Default to experiments/outputs/reports/ directory
-        import os
-        from datetime import datetime
-        
-        output_dir = "experiments/outputs/reports"
+        # Default to experiments/outputs/data/ directory
+        output_dir = "experiments/outputs/data"
         os.makedirs(output_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_path = f"{output_dir}/simulation_report_{timestamp}.md"
+        default_path = f"{output_dir}/polars_metrics_{timestamp}.json"
         
         with open(default_path, 'w') as f:
-            f.write(report)
-        print(f"Report saved to {default_path}")
-    
-    return report
+            json.dump(metrics_data, f, indent=2)
+        print(f"Metrics exported to {default_path}")
