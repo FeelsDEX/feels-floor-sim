@@ -40,7 +40,7 @@ jobs:
         "
     
     - name: Upload executed notebooks
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: executed-notebooks
         path: |
