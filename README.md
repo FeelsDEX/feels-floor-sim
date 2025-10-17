@@ -7,10 +7,11 @@ A simulation framework for analyzing Feels protocol floor price dynamics.
 The Feels Protocol implements a concentrated liquidity AMM where FeelsSOL serves as the universal routing token, backed 1:1 by yield-bearing JitoSOL. The protocol's key innovation is a Protocol-Owned Market Maker, which creates monotonically increasing price floors for tokens.
 
 This simulation models the protocol's core economic dynamics:
-- **Trading generates fees** → distributed to Buffer (~98.5%), protocol (~1%), creators (~0.5%)
+- **Trading generates fees** → distributed to Buffer (~85%), protocol (~10%), creators (~5%)
 - **Buffer automatically funds POMM** → deploys accumulated fees as floor liquidity
-- **JitoSOL backing earns yield** → provides additional FeelsSOL minting capacity
+- **JitoSOL backing earns yield** → provides additional FeelsSOL minting capacity (~7% APR)
 - **POMM deploys liquidity** → advances floor price (monotonic increase)
+- **JIT liquidity system** → provides early-stage market bootstrapping
 - **Higher floors attract trading** → increases volume and fees
 
 **Key Simulation Goal**: Analyze different fee allocation strategies to recommend optimal parameters for protocol launch, balancing floor advancement speed with protocol sustainability.
@@ -69,12 +70,13 @@ from feels_sim.metrics import analyze_results, create_summary_plots
 # Configure simulation parameters
 config = SimulationConfig(
     base_fee_bps=30,            # 0.30% swap fee
-    treasury_share_pct=1.0,     # 1% to protocol treasury (current default)
-    creator_share_pct=0.5,      # 0.5% to creators (current default)
-    # buffer_share_pct automatically calculated as remainder (98.5%)
+    treasury_share_pct=10.0,    # 10% to protocol treasury
+    creator_share_pct=5.0,      # 5% to creators
+    # buffer_share_pct automatically calculated as remainder (~85%)
     jitosol_yield_apy=0.07,     # 7% JitoSOL yield
     pomm_deployment_ratio=0.5,  # Deploy 50% of available funding
-    sol_volatility_daily=0.05   # 5% daily SOL volatility
+    volatility_daily=0.05,      # 5% daily SOL volatility
+    jit_enabled=True            # Enable JIT liquidity system
 )
 
 # Or use predefined fee scenarios for parameter exploration
@@ -96,17 +98,19 @@ feels-floor-sim/
 ├── feels_sim/           # Core simulation package
 │   ├── cli.py           # Command-line interface for parameter sweeps
 │   ├── config.py        # Configuration and parameters
-│   ├── core.py          # Main simulation engine
+│   ├── core.py          # Main simulation engine with AgentPy integration
 │   ├── market.py        # Market environment and price evolution
-│   ├── metrics.py       # Analysis and reporting utilities
-│   └── __main__.py      # Module entry point
+│   ├── metrics.py       # Polars-based analysis and reporting
+│   ├── plotting.py      # Enhanced seaborn visualization
+│   ├── pricing.py       # JIT liquidity management
+│   └── participants.py  # Participant behavior modeling
 ├── notebooks/           # Analysis notebooks
 │   ├── 01_baseline.ipynb      # Baseline scenario analysis
 │   └── 02_parameter_sweep.ipynb # Parameter optimization analysis
 ├── tests/               # Test suite
 ├── experiments/         # Results and configuration files
-├── work/                # Implementation planning
-└── docs/                # Protocol documentation
+├── docs/                # Protocol and implementation documentation
+└── flake.nix           # Nix development environment
 ```
 
 ## License

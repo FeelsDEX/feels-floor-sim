@@ -47,7 +47,7 @@ The fee system in Feels operates as the primary value capture mechanism. It driv
 
 **Base fees** represent a fixed percentage charged on every trade. They are currently set at 30 basis points (0.30%) by default. This fee is configurable per market through governance and can range from 0% to 10%. This allows for fine-tuning based on market characteristics and competitive dynamics. The base fee provides steady revenue that flows into the system regardless of price volatility.
 
-**Impact fees** add a dynamic component that reflects the actual market impact of each trade. As currently implemented, impact fees are designed to start at a minimum of 10 basis points (0.10%). They increase based on the number of ticks crossed during swap execution. However, the current implementation has this feature disabled (returning 0% impact fees). This means only base fees are active until the impact fee mechanism is fully deployed.
+**Impact fees** add a dynamic component that reflects the actual market impact of each trade. While designed to start at a minimum of 10 basis points (0.10%) and increase based on ticks crossed, this feature is currently disabled in the implementation (returning 0% impact fees). This means only base fees are active until the impact fee mechanism is fully deployed. The `impact_floor_bps` parameter is a conceptual placeholder for future implementation and not currently active.
 
 ### Fee Calculation and User Protection
 
@@ -107,7 +107,7 @@ When advancement occurs, the system consumes FeelsSOL from the Buffer to establi
 
 The Just-In-Time liquidity system addresses the cold start problem that new token markets face. It provides immediate, protocol-owned liquidity around the current trading price. JIT v0.5 implements a "virtual concentration" mechanism that effectively multiplies the impact of deployed liquidity. This creates tight spreads without requiring massive capital deployment.
 
-When active, JIT provides a 10x liquidity multiplier for any capital within one tick of the current market price. This virtual concentration simulates the effect of having concentrated liquidity providers actively managing positions around the current price. This ensures that small trades experience minimal slippage even in newly launched markets.
+When active, JIT provides *virtual concentrated liquidity* that enhances existing LP liquidity. It strategically places *contrarian* liquidity (opposite to the taker's direction) around a time-weighted average price (TWAP) anchor. This system applies a virtual concentration effect, such as a 10x multiplier, to a base liquidity amount, making JIT highly capital efficient. This ensures that small trades experience minimal slippage even in newly launched markets. The value of consumed JIT liquidity is routed back to the Buffer, effectively making JIT "earn" for the protocol.
 
 **JIT is disabled by default** in the current implementation. Markets initialize with `jit_enabled = false` and zero multipliers. This means this system only becomes active when explicitly enabled for specific markets. This represents a conservative approach to rolling out JIT functionality.
 
@@ -135,13 +135,15 @@ The protocol implements a **two-layer fee distribution system** that combines tr
 
 #### Primary Fee Split (from total swap fees)
 
+The protocol's fee distribution prioritizes the Buffer (τ) for floor advancement, after allocating shares to the Protocol Treasury and Token Creators. Liquidity Providers (LPs) earn fees that accrue to their positions, which they collect separately, and are not part of this primary fee distribution from a swap.
+
 | Component | Current Default | Configurable Range | Purpose |
 |-----------|----------------|-------------------|---------|
-| Buffer (τ) | ~98.5% | Variable remainder | Accumulates for automatic POMM deployment and floor advancement |
-| Protocol Treasury | ~1.0% | 0-10% | Ongoing development and operational expenses |
-| Token Creators | ~0.5% | 0-5% | Incentive for launching projects on the platform |
+| Protocol Treasury | 1.0% (100 bps) | 0-10% (0-1000 bps) | Ongoing development and operational expenses |
+| Token Creators | 0.5% (50 bps) | 0-5% (0-500 bps) | Incentive for launching projects on the platform (for protocol-minted tokens) |
+| Buffer (τ) | Remainder | N/A | Accumulates for automatic POMM deployment and floor advancement |
 
-**Note**: Current program defaults allocate 1% to protocol treasury and 0.5% to creators, with the buffer receiving the remainder (~98.5%). These percentages are configurable by the protocol admin and may be adjusted based on simulation results and governance decisions.
+**Note**: Current program defaults allocate 1.0% (100 bps) to the protocol treasury and 0.5% (50 bps) to creators. The Buffer (τ) receives the remaining portion of the total swap fees. These percentages are configurable by the protocol admin and may be adjusted based on simulation results and governance decisions.
 
 #### Automatic Fee-Driven Floor Advancement
 

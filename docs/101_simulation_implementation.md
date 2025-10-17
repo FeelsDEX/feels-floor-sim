@@ -63,6 +63,49 @@ Long-term system health requires balancing floor price growth with market functi
 - `buffer_sustainability`: Rate of fee accumulation vs deployment consumption
 - `funding_source_analysis`: Breakdown of POMM funding sources (Buffer fees, synthetic minting, optional supplements)
 
+## POMM (Protocol-Owned Market Making) Implementation
+
+The simulation implements threshold-based POMM deployment with automatic Buffer-driven funding:
+
+### Current POMM Features
+
+**Threshold-Based Deployment**:
+- **Minimum threshold**: 100 tokens combined (Buffer + mintable FeelsSOL)
+- **Cooldown enforcement**: 60-second minimum between deployments
+- **TWAP validation**: Requires 5-minute price history before deployment
+- **Dual funding sources**: Uses Buffer balance first, then synthetic FeelsSOL minting
+
+**Configuration Parameters**:
+```python
+pomm_threshold_tokens: float = 100.0       # Minimum balance for deployment
+pomm_cooldown_seconds: int = 60            # Minimum time between deployments
+pomm_deployment_ratio: float = 0.5         # Fraction of available funds deployed
+pomm_width_multiplier: int = 20            # Position width (tick_spacing × 20)
+pomm_twap_window_seconds: int = 300        # 5-minute TWAP requirement
+pomm_min_twap_seconds: int = 60            # Minimum observation window
+```
+
+**Deployment Logic**:
+- Calculates available capital: `buffer_balance + mintable_feelssol`
+- Checks cooldown: `current_time - last_deployment >= 60 seconds`
+- Validates TWAP: Ensures sufficient price history for placement
+- Deploys configurable fraction (50% default) of available funds
+- Updates `deployed_feelssol` and advances monotonic floor price
+
+**State Tracking**:
+- Maintains deployment timestamps and counts
+- Tracks cumulative Buffer routing and synthetic minting
+- Records deployed amounts for floor price calculation
+
+### POMM Limitations
+
+The current implementation focuses on **economic mechanics** rather than detailed position management:
+- **No individual position tracking**: Tracks aggregate deployed amounts only
+- **No fee recycling**: POMM positions don't earn fees back to Buffer
+- **No position lifecycle**: No retirement/redeployment of individual ranges
+- **No dual-asset accounting**: No separate token₀/token₁ balance tracking
+- **Basic floor synchronization**: Simple advancement without detailed tick ratchet logic
+
 **Market Participant Economics**:
 - `trading_volume_impact`: Effect of fee levels on trading volume
 - `participant_retention`: How fee structure affects long-term participation
@@ -177,6 +220,51 @@ def complete_hour(self):
 - `process_participant_decisions()`: Models trading behavior for each participant type based on current market conditions.
 - `execute_swaps_against_curve()`: Consumes orders across tick-indexed liquidity buckets to compute execution price and slippage.
 - `distribute_fees()`: Routes ~85% of fees into Buffer, ~10% to protocol treasury, and ~5% to creators.
+- `apply_jit_liquidity()`: Adjusts effective minute volume using Buffer-driven JIT budgets when enabled.
+
+## JIT (Just-In-Time) Liquidity Implementation
+
+The simulation implements a budget-driven JIT system for early-stage market bootstrapping:
+
+### Current JIT Features
+
+**Budget-Driven Volume Amplification** (`JitManager` class):
+- **Per-minute caps**: 5% of Buffer balance maximum per minute
+- **Per-swap caps**: 3% of Buffer balance maximum per trade  
+- **Age-based decay**: Effectiveness decreases as markets mature
+- **Volume boost**: 30% default volume increase with budget constraints
+
+**Safety Mechanisms**:
+- **Buffer health monitoring**: Auto-disables when Buffer < 30% of initial
+- **Duration limits**: Auto-disables after 24 hours by default
+- **Budget tracking**: Prevents rapid drainage through consumption limits
+
+**Configuration Parameters**:
+```python
+jit_enabled: bool = True                    # Enable/disable JIT system
+jit_base_cap_bps: int = 300                # Per-swap budget (3%)
+jit_per_slot_cap_bps: int = 500            # Per-minute budget (5%)
+jit_volume_boost_factor: float = 0.3       # Volume multiplier (30%)
+jit_max_duration_hours: int = 24           # Auto-disable duration
+jit_buffer_health_threshold: float = 0.3   # Health threshold (30%)
+```
+
+**Integration Flow**:
+1. Check JIT eligibility (health, duration, budget)
+2. Calculate available boost based on Buffer balance
+3. Apply volume multiplier to trading activity
+4. Route boosted volume through standard fee split
+5. Update budget consumption tracking
+
+### JIT Limitations
+
+Current implementation provides **economic impact modeling**:
+- **Volume amplification only**: No actual liquidity placement
+- **Symmetric boosting**: No directional placement around price anchors
+- **Minute-level budgets**: No sub-minute consumption tracking
+- **Basic safety checks**: No sophisticated circuit breakers
+
+**Continuing Event Processing**:
 - `update_floor_funding_flows()`: Consolidates Buffer growth with synthetic minting and updates deployment readiness.
 - `evaluate_pomm_deployments()`: Determines whether sufficient capital and timing conditions are met to advance the floor.
 - `rebalance_participants()`: Reassesses LP and trader positioning at hourly boundaries.
@@ -184,7 +272,7 @@ def complete_hour(self):
 
 ### Tick-Level Liquidity Representation
 
-Liquidity is stored as tick-indexed buckets (`liquidity_curve`). Swap execution walks the curve, removing or adding liquidity as positions rebalance. This enables realistic microstructure metrics:
+Liquidity is managed through participant positions across tick ranges. Swap execution aggregates active liquidity from participant positions, enabling realistic microstructure metrics:
 
 ```python
 def quote_swap(amount_in: float, direction: SwapDirection, curve: Dict[int, float]):
@@ -211,6 +299,7 @@ class FloorFundingState:
 - Accrue synthetic FeelsSOL minting into `mintable_feelssol` at the configured drift rate.
 - Track treasury and creator balances so optional supplements can be attributed separately from automatic funding.
 
+
 ### Configuration & Scenario Management
 
 - Define all tunable parameters inside `config.py` dataclasses (fee schedule, buffer share, mint rate, liquidity granularity, participant elasticities).
@@ -221,8 +310,8 @@ class FloorFundingState:
 ### Development Phases
 
 1. **Foundations**: Implement core state containers, liquidity math, and deterministic swap execution. Add unit tests comparing against reference Uniswap v3 calculations.
-2. **Funding Mechanics**: Build the floor funding pipeline (fee routing, synthetic minting, cooldown enforcement) using scripted scenarios to validate multiple deployments per hour.
-3. **Participant Behaviors**: Port behavior models into `participants/`, parameterize them with calibration inputs, and add regression tests to keep aggregate volume/fee responses stable.
+2. **Funding Mechanics**: Build the floor funding pipeline (fee routing, synthetic minting, cooldown enforcement) and TWAP infrastructure, using scripted scenarios to validate multiple deployments per hour.
+3. **Participant Behaviors**: Port behavior models into `participants/`, integrate the simplified JIT volume boost with order generation, parameterize with calibration inputs, and add regression tests to keep aggregate volume/fee responses stable.
 4. **Metrics & Reporting**: Finish `MetricsCollector` and aggregation utilities, ensuring day/week/year rollups match expectations on synthetic data. Wire notebooks/dashboards to the produced parquet or arrow files.
 5. **Optimization & Analysis**: Implement parameter exploration tools for scenario analysis and result comparison.
 

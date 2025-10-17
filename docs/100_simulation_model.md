@@ -12,7 +12,7 @@ The simulation focuses on modeling a single Feels market over time. It captures 
 
 Based on analysis of the Feels protocol implementation, several key insights fundamentally shape the simulation approach:
 
-**Fee Distribution Reality**: Swap fees are split with ~85% going to the Buffer (τ) for automatic POMM deployment, ~10% to protocol treasury, and ~5% to token creators. This creates direct fee-driven floor advancement.
+**Fee Distribution Reality**: Swap fees are first allocated to the Protocol Treasury (1.0%) and Token Creators (0.5%). The remaining portion of the total swap fees is then routed to the Buffer (τ) for automatic POMM deployment. This creates direct fee-driven floor advancement. Liquidity Providers (LPs) earn fees that accrue to their positions, which they collect separately, and are not part of this primary fee distribution from a swap.
 
 **Automatic POMM Funding**: Floor price advancement through POMM deployment is automatically funded by trading fees accumulating in the Buffer. When thresholds are met (100+ tokens), POMM positions deploy automatically.
 
@@ -57,7 +57,6 @@ class MarketState:
     current_tick: int              # Current price tick
     sqrt_price: float              # Current sqrt price (Q64 format)
     total_liquidity: float         # Active liquidity within the trading range
-    liquidity_curve: Dict[int, float]  # Tick-indexed liquidity buckets
     floor_tick: int                # Current floor price tick
     floor_price_usd: float         # Floor price in USD terms
 ```
@@ -65,12 +64,16 @@ class MarketState:
 **Protocol Operations State**
 ```python
 class ProtocolState:
-    treasury_balance: float        # Protocol treasury accumulation (~10% of fees)
-    creator_balance: float         # Creator fee accumulation (~5% of fees)
-    buffer_balance: float          # Fee share routed to Buffer for automatic POMM
-    mintable_feelssol: float       # FeelsSOL available from yield-driven minting
-    last_pomm_deployment: int      # Timestamp of last POMM action
-    pomm_deployments_count: int    # Number of floor advancements
+    treasury_balance: float          # Protocol treasury accumulation (~10%)
+    creator_balance: float           # Creator rewards (~5%)
+    buffer_balance: float            # τ (spot) balance for POMM deployment
+    mintable_feelssol: float         # Synthetic minting capacity (JitoSOL drift)
+    deployed_feelssol: float         # Permanent floor reserves
+    buffer_routed_cumulative: float  # Cumulative fees routed to Buffer
+    mint_cumulative: float           # Cumulative synthetic minting accrued
+    initial_buffer_balance: float    # Reference level for health checks / JIT
+    last_pomm_deployment: int        # Timestamp of last POMM action
+    pomm_deployments_count: int      # Number of floor advancements
 ```
 
 **Token Economics**
@@ -115,7 +118,7 @@ Therefore: $$\text{Floor Price (USD)} = \text{Floor Price (FeelsSOL)} \times \te
 
 ### Reserve Accumulation Dynamics
 
-**Critical Update**: Floor price reserves automatically accumulate from trading fees. The implementation shows that ~85% of fees go directly to the Buffer (τ) for automatic POMM deployment, creating fee-driven floor advancement.
+**Critical Update**: Floor price reserves automatically accumulate from trading fees. The implementation shows that after Protocol (1.0%) and Creator (0.5%) fees are taken, the remaining portion of fees goes directly to the Buffer (τ) for automatic POMM deployment, creating fee-driven floor advancement.
 
 **Reserve Sources**:
 1. **Buffer Fee Accumulation**: ~85% of every swap fee moves directly into Buffer for deployment
@@ -158,25 +161,7 @@ The primary analysis objective is to understand how the floor evolves over multi
 
 These aggregates are computed from the minute-level engine outputs so that the same underlying mechanics inform short- and long-term reporting.
 
-**Deployment Calculation**:
-```python
-def calculate_pomm_deployment(allocated_funding, current_floor_tick, current_price_tick, floor_buffer_ticks):
-    candidate_floor_tick = current_price_tick - floor_buffer_ticks
-    
-    if candidate_floor_tick > current_floor_tick and allocated_funding > pomm_threshold:
-        deployment_amount = min(
-            allocated_funding * pomm_deployment_ratio,
-            calculate_liquidity_required(candidate_floor_tick)
-        )
-        return deployment_amount, candidate_floor_tick
-    
-    return 0, current_floor_tick
-```
-
-**Floor Price Update After Deployment**:
-$$\text{New Floor Reserves} = \text{Old Floor Reserves} + \text{Deployment Amount}$$
-
-$$\text{New Floor Price} = \frac{\text{New Floor Reserves}}{\text{Circulating Supply}}$$
+After deployment the reserve-backed floor price is recomputed from the new `deployed_feelssol`. The floor tick is then derived directly from that USD floor value so the tick representation and the reserve-backed floor remain perfectly aligned.
 
 ### Time-Dependent Floor Price Trajectory
 
@@ -191,6 +176,56 @@ where $r$ is the JitoSOL appreciation rate relative to SOL (~7% APR).
 2. **Secondary Growth**: FeelsSOL minting capacity from JitoSOL backing appreciation
 3. **Trading Coupling**: Floor growth rate directly proportional to trading volume and activity
 4. **Feedback Loop**: Higher floors attract more trading, creating compound growth potential
+
+### Price Observation & TWAP Calculation
+
+To mirror on-chain safeguards, the simulation maintains a rolling tick history at one-minute resolution. This observation buffer powers:
+
+1. **5-minute TWAP (300s)** used for POMM placement to resist manipulation
+2. **1-minute GTWAP-style anchors** for JIT liquidity decisions
+3. **Volatility estimates** that widen POMM ranges during turbulent periods
+
+If insufficient observations exist (e.g., early in the simulation), POMM and JIT actions gracefully defer until the minimum duration requirements are satisfied.
+
+## JIT Liquidity Implementation
+
+The simulation implements a budget-driven Just-In-Time (JIT) liquidity system that provides early-stage market bootstrapping through volume amplification:
+
+### Current JIT Features
+
+**Budget-Driven Liquidity System** (`JitManager` class):
+- **Per-minute budget caps**: 5% of current Buffer balance maximum per minute (slot)
+- **Per-swap budget caps**: 3% of current Buffer balance maximum per individual trade
+- **Age-based decay**: JIT effectiveness decreases as markets mature (strongest when newest)
+- **Volume boost mechanism**: Applies configurable volume multiplier (30% default) with budget constraints
+
+**Safety Mechanisms**:
+- **Buffer health threshold**: Auto-disables when Buffer < 30% of initial balance
+- **Maximum duration limit**: Auto-disables after 24 hours by default
+- **Budget tracking**: Prevents rapid drainage through per-slot consumption limits
+
+**Configuration Parameters**:
+```python
+jit_enabled: bool = True                    # Enable/disable JIT system
+jit_base_cap_bps: int = 300                # Per-swap budget (3% of Buffer)
+jit_per_slot_cap_bps: int = 500            # Per-minute budget (5% of Buffer)
+jit_volume_boost_factor: float = 0.3       # Volume increase factor (30%)
+jit_max_duration_hours: int = 24           # Auto-disable after hours
+jit_buffer_health_threshold: float = 0.3   # Disable threshold (30% of initial)
+```
+
+**Economic Integration**:
+- Boosted volume routes through standard 85/10/5 fee split
+- Additional fees accumulate in Buffer for POMM deployment
+- No separate liquidity placement - pure volume amplification approach
+
+### JIT Limitations
+
+The current implementation provides **economic impact modeling** rather than full on-chain replication:
+- **No contrarian placement**: Volume boosts are symmetric, no directional liquidity
+- **No sub-minute tracking**: Uses minute-level budgets, not rolling consumption windows
+- **Simple price impact**: Volume multiplier rather than actual liquidity-to-volume translation
+- **No oracle anchoring**: Basic safety checks rather than GTWAP deviation monitoring
 
 ---
 

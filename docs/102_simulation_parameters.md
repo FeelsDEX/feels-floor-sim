@@ -66,12 +66,12 @@ These parameters determine how collected fees are allocated between different st
 
 | Parameter | Description | Current Default | Range | Adjustable |
 |-----------|-------------|----------------|-------|------------|
-| `buffer_share_pct` | Percentage to Buffer for automatic POMM deployment | ~98.5% | Remainder after protocol+creator | ✓ |
-| `treasury_share_pct` | Percentage to protocol treasury | ~1.0% | 0-10% | ✓ |
-| `creator_share_pct` | Percentage to token creator | ~0.5% | 0-5% | ✓ |
+| `protocol_fee_rate_bps` | Protocol fee rate in basis points | 100 bps (1.0%) | 0-1000 bps | ✓ |
+| `creator_fee_rate_bps` | Creator fee rate in basis points | 50 bps (0.5%) | 0-500 bps | ✓ |
+| `buffer_share` | Remainder to Buffer for automatic POMM deployment | Remainder | N/A | N/A |
 | `pomm_funding_source` | How floor advancement is funded | Automatic fee accumulation | N/A | Fixed |
 
-**Fee Split Optimization Goal**: One of the primary goals of this simulation is to analyze different fee allocation strategies and recommend optimal parameters for the protocol. The current program defaults (1% protocol, 0.5% creator, 98.5% buffer) serve as the baseline, with systematic exploration of alternative splits to balance floor advancement speed, protocol sustainability, and ecosystem incentives.
+**Fee Split Optimization Goal**: One of the primary goals of this simulation is to analyze different fee allocation strategies and recommend optimal parameters for the protocol. The current program defaults (Protocol 1.0%, Creator 0.5%, Buffer receives remainder) serve as the baseline, with systematic exploration of alternative splits to balance floor advancement speed, protocol sustainability, and ecosystem incentives.
 
 **POMM Deployment Parameters**
 
@@ -81,8 +81,25 @@ These parameters control when and how Protocol-Owned Market Making positions are
 |-----------|-------------|-------------|
 | `pomm_threshold_tokens` | Buffer threshold for activation | 100 tokens |
 | `pomm_cooldown_seconds` | Time between deployments | 60 seconds |
-| `pomm_deployment_ratio` | Fraction of buffer used per deployment | 0.1-0.8 |
-| `floor_buffer_ticks` | Distance below current price for floor placement | 10-100 ticks |
+| `pomm_deployment_ratio` | Fraction of buffer/mint used per deployment | 0.1-0.8 |
+| `pomm_width_multiplier` | Derived width multiplier (`tick_spacing × multiplier`) | 20 (default) |
+| `pomm_min_width_ticks` | Minimum deployment width | 10 ticks |
+| `pomm_max_width_ticks` | Maximum deployment width | 2000 ticks |
+| `pomm_twap_window_seconds` | TWAP window for placement | 300 seconds |
+| `pomm_min_twap_seconds` | Minimum observation span before deployment | 60 seconds |
+
+**JIT Liquidity Parameters**
+
+| Parameter | Description | Range/Value |
+|-----------|-------------|-------------|
+| `jit_enabled` | Whether JIT liquidity is simulated | true/false |
+| `jit_base_cap_bps` | Per-swap budget as % of Buffer | 100-500 bps |
+| `jit_per_slot_cap_bps` | Per-minute budget as % of Buffer | 300-700 bps |
+| `jit_max_multiplier` | Peak virtual liquidity multiplier | 5-10× |
+| `jit_concentration_width` | Tick width around the anchor for JIT | 5-15 ticks |
+| `jit_volume_boost_factor` | Fractional volume lift when JIT active | 0.1-0.5 |
+| `jit_max_duration_hours` | Maximum bootstrap duration for JIT | 6-48 hours |
+| `jit_buffer_health_threshold` | Disable JIT when Buffer < threshold | 20-40% of initial |
 
 **Supplemental Funding Parameters (optional)**
 
@@ -132,7 +149,9 @@ The default protocol configuration representing current implementation state:
 |-----------|-------|-------------|
 | Base fee | 30 basis points (0.30%) | Standard swap fee |
 | Impact fees | Disabled | Current implementation state |
-| Fee distribution | 98.5% Buffer, 1% protocol, 0.5% creator | Current program defaults |
+| Protocol fee | 1.0% (100 bps) | Default protocol fee rate |
+| Creator fee | 0.5% (50 bps) | Default creator fee rate |
+| Buffer share | Remainder | After protocol and creator fees |
 | POMM funding | Automatic Buffer accumulation | Continuous deployment |
 | Mint rate | 7% synthetic FeelsSOL yield | Backing-driven drift |
 | POMM deployment ratio | 50% of buffer per deployment | Conservative deployment |
@@ -166,10 +185,10 @@ Different fee allocation scenarios to test impact on system dynamics:
 | Scenario | Buffer Share | Protocol Share | Creator Share | Description |
 |----------|--------------|----------------|---------------|-------------|
 | Current Default | 98.5% | 1.0% | 0.5% | Current program defaults |
-| Protocol Sustainable | 85% | 10% | 5% | Increased protocol treasury funding |
-| Creator Incentive | 90% | 5% | 5% | Enhanced creator rewards while maintaining protocol funding |
+| Protocol Sustainable | 90% | 7% | 3% | Increased protocol treasury funding within constraints |
+| Creator Incentive | 90% | 5% | 5% | Enhanced creator rewards |
 | Balanced Growth | 92% | 5% | 3% | Moderate increases to protocol and creator shares |
-| Maximum Protocol | 80% | 15% | 5% | Maximum sustainable protocol funding |
+| Maximum Protocol | 90% | 8% | 2% | Near-maximum sustainable protocol funding |
 
 *Implementation note*: Buffer allocation directly controls floor advancement rate, while the synthetic mint rate adds a predictable drift. Higher Buffer allocation leads to faster floor growth but reduces protocol treasury accumulation. Each scenario should be evaluated for long-term sustainability.
 
