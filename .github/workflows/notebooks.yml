@@ -27,21 +27,36 @@ jobs:
           # Install notebook execution dependencies
           pip install nbconvert jupyter
           
-          # Execute each notebook and save outputs
-          jupyter nbconvert --to notebook --execute notebooks/01_baseline.ipynb --output 01_baseline_executed.ipynb
-          jupyter nbconvert --to notebook --execute notebooks/02_parameter_sweep.ipynb --output 02_parameter_sweep_executed.ipynb
-          jupyter nbconvert --to notebook --execute notebooks/03_calibration.ipynb --output 03_calibration_executed.ipynb
+          # Execute notebooks in place (overwrite originals with outputs)
+          jupyter nbconvert --to notebook --execute --inplace notebooks/01_baseline.ipynb
+          jupyter nbconvert --to notebook --execute --inplace notebooks/02_parameter_sweep.ipynb
+          jupyter nbconvert --to notebook --execute --inplace notebooks/03_calibration.ipynb
           
-          # Convert to HTML for viewing
-          jupyter nbconvert --to html notebooks/01_baseline_executed.ipynb
-          jupyter nbconvert --to html notebooks/02_parameter_sweep_executed.ipynb
-          jupyter nbconvert --to html notebooks/03_calibration_executed.ipynb
+          # Also create HTML versions for artifacts
+          jupyter nbconvert --to html notebooks/01_baseline.ipynb
+          jupyter nbconvert --to html notebooks/02_parameter_sweep.ipynb
+          jupyter nbconvert --to html notebooks/03_calibration.ipynb
         "
     
-    - name: Upload executed notebooks
+    - name: Commit executed notebooks
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add notebooks/*.ipynb
+        git diff --staged --quiet || git commit -m "Update notebooks with execution outputs
+
+        🤖 Generated with [Claude Code](https://claude.ai/code)
+
+        Co-Authored-By: Claude <noreply@anthropic.com>"
+    
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: main
+    
+    - name: Upload HTML versions
       uses: actions/upload-artifact@v4
       with:
-        name: executed-notebooks
-        path: |
-          notebooks/*_executed.ipynb
-          notebooks/*.html
+        name: notebook-html
+        path: notebooks/*.html
