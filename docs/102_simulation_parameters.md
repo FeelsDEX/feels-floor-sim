@@ -66,8 +66,8 @@ These parameters determine how collected fees are allocated between different st
 
 | Parameter | Description | Current Default | Range | Adjustable |
 |-----------|-------------|----------------|-------|------------|
-| `protocol_fee_rate_bps` | Protocol fee rate in basis points | 100 bps (1.0%) | 0-1000 bps | ✓ |
-| `creator_fee_rate_bps` | Creator fee rate in basis points | 50 bps (0.5%) | 0-500 bps | ✓ |
+| `protocol_fee_rate_bps` | Protocol fee rate in basis points | 100 bps (1.0%) | 0-1000 bps | Yes |
+| `creator_fee_rate_bps` | Creator fee rate in basis points | 50 bps (0.5%) | 0-500 bps | Yes |
 | `buffer_share` | Remainder to Buffer for automatic POMM deployment | Remainder | N/A | N/A |
 | `pomm_funding_source` | How floor advancement is funded | Automatic fee accumulation | N/A | Fixed |
 

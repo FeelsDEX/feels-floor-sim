@@ -20,9 +20,9 @@ sim:
 # Run all tests
 test *ARGS:
     @echo "Testing core modules and dependencies..."
-    @nix develop --command python -c "import polars as pl; print(f'✓ polars {pl.__version__} available')"
-    @nix develop --command python -c "import numpy as np; print(f'✓ numpy {np.__version__} available')"
-    @nix develop --command python -c "import agentpy as ap; print(f'✓ agentpy {ap.version.__version__} available')"
+    @nix develop --command python -c "import polars as pl; print(f'polars {pl.__version__} available')"
+    @nix develop --command python -c "import numpy as np; print(f'numpy {np.__version__} available')"
+    @nix develop --command python -c "import agentpy as ap; print(f'agentpy {ap.version.__version__} available')"
     @nix develop --command python3 tests/run_tests.py
 
 # Run parameter sweep analysis
