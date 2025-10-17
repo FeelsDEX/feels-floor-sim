@@ -21,14 +21,6 @@ jobs:
       with:
         github_access_token: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Cache Nix store
-      uses: actions/cache@v4
-      with:
-        path: /nix/store
-        key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
-        restore-keys: |
-          nix-${{ runner.os }}-
-    
     - name: Execute notebooks
       run: |
         nix develop --command bash -c "
